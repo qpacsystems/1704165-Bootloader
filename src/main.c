@@ -6,6 +6,7 @@
 
 #include "boot_config.h"
 #include "stm32h5xx_hal.h"
+#include "stm32h5xx.h"
 #include "bootloader/second_stage/boot.h"
 #include "core/mailbox.h"
 #include "drivers/flash/internal/stm32h5xx_flash_driver.h"
@@ -42,13 +43,38 @@ int main(void)
     bootConfigureMemory(&bootSettings);
     bootInit(&bootContext, &bootSettings);
 
-    // Check if app slot has a valid-looking image (SP should be in RAM range)
-    uint32_t appSp = *(volatile uint32_t *)(FLASH_BANK1_ADDR + BOOT_OFFSET);
-    if (appSp >= 0x20000000 && appSp <= 0x200A0000) {
-        // Valid app present — run CycloneBOOT FSM (validates, jumps, or falls back)
-        while (1) {
-            bootFsm(&bootContext);
+    // Check if app slot has a valid-looking vector table
+    uint32_t appAddr = FLASH_BANK1_ADDR + BOOT_OFFSET; // 0x08010000
+    uint32_t appSp   = *(volatile uint32_t *)(appAddr);
+    uint32_t appPc   = *(volatile uint32_t *)(appAddr + 4);
+
+    if (appSp >= 0x20000000 && appSp <= 0x200A0000 &&
+        appPc >= appAddr && appPc < (appAddr + 0x100000)) {
+        // Valid app found — clean up and jump
+        // Disable SysTick
+        SysTick->CTRL = 0;
+        SysTick->LOAD = 0;
+        SysTick->VAL  = 0;
+
+        // Disable all interrupts and clear pending
+        for (int i = 0; i < 8; i++) {
+            NVIC->ICER[i] = 0xFFFFFFFF;
+            NVIC->ICPR[i] = 0xFFFFFFFF;
         }
+
+        // Disable fault handlers
+        SCB->SHCSR = 0;
+
+        // Set VTOR to app
+        SCB->VTOR = appAddr;
+
+        __DSB();
+        __ISB();
+
+        // Set stack pointer and jump
+        __set_MSP(appSp);
+        ((void (*)(void))(appPc))();
+        while (1);
     } else {
         // No valid app — blink LED forever
         while (1) {
