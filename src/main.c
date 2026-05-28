@@ -1,11 +1,6 @@
 /**
  * @file main.c
  * @brief Standalone bootloader entry point
- *
- * Bare-metal (no RTOS). Initializes minimal hardware, configures
- * CycloneBOOT v2.6.2 dual-bank memory layout, and runs the boot FSM.
- *
- * @section License
  * SPDX-License-Identifier: GPL-2.0-or-later
  **/
 
@@ -17,63 +12,68 @@
 #include "modules/memory/memory.h"
 #include "boot_hooks.h"
 
-// Forward declarations
-static void SystemClock_Config(void);
 static void bootConfigureMemory(BootSettings *settings);
 
-// CycloneBOOT boot context and settings
 static BootContext bootContext;
 static BootSettings bootSettings;
 
 int main(void)
 {
-    // Minimal HAL init (SysTick, flash latency)
-    HAL_Init();
-
-    // Configure system clock (HSE -> PLL -> 250 MHz)
-    SystemClock_Config();
-
-    // Enable ICACHE for faster flash reads
-    HAL_ICACHE_Enable();
-
-    // Get default settings, then configure memory layout
-    bootGetDefaultSettings(&bootSettings);
-    bootConfigureMemory(&bootSettings);
-
-    // Initialize the boot FSM (v2.6.2 API: context + settings)
-    bootInit(&bootContext, &bootSettings);
-
-    // Run boot state machine in a loop
-    // bootFsm() will eventually jump to the application or
-    // perform fallback if the image is invalid
-    while (1) {
-        bootFsm(&bootContext);
+    // Blink LED immediately using raw registers (proves we're alive)
+    // Enable GPIOB clock
+    *(volatile uint32_t *)0x44020C8CU |= (1U << 1);
+    for (volatile int i = 0; i < 10; i++);
+    // PB13 as output
+    uint32_t moder = *(volatile uint32_t *)0x42020400U;
+    moder &= ~(3U << 26);
+    moder |= (1U << 26);
+    *(volatile uint32_t *)0x42020400U = moder;
+    // Brief blink to show bootloader is alive
+    for (int i = 0; i < 4; i++) {
+        *(volatile uint32_t *)0x42020414U ^= (1U << 13);
+        for (volatile uint32_t d = 0; d < 200000; d++);
     }
 
-    // Never reached
+    HAL_Init();
+    HAL_ICACHE_Enable();
+
+    // Configure CycloneBOOT memory layout
+    bootGetDefaultSettings(&bootSettings);
+    bootConfigureMemory(&bootSettings);
+    bootInit(&bootContext, &bootSettings);
+
+    // Check if app slot has a valid-looking image (SP should be in RAM range)
+    uint32_t appSp = *(volatile uint32_t *)(FLASH_BANK1_ADDR + BOOT_OFFSET);
+    if (appSp >= 0x20000000 && appSp <= 0x200A0000) {
+        // Valid app present — run CycloneBOOT FSM (validates, jumps, or falls back)
+        while (1) {
+            bootFsm(&bootContext);
+        }
+    } else {
+        // No valid app — blink LED forever
+        while (1) {
+            *(volatile uint32_t *)0x42020414U ^= (1U << 13);
+            for (volatile uint32_t d = 0; d < 300000; d++);
+        }
+    }
+
     return 0;
 }
 
-/**
- * @brief Configure dual-bank memory layout for CycloneBOOT
- */
 static void bootConfigureMemory(BootSettings *settings)
 {
-    // Primary memory: internal flash
     Memory *primaryMem = &settings->memories[0];
     primaryMem->memoryType = MEMORY_TYPE_FLASH;
     primaryMem->memoryRole = MEMORY_ROLE_PRIMARY;
     primaryMem->driver     = &stm32h5xxFlashDriver;
     primaryMem->nbSlots    = 2;
 
-    // Slot 0: Application (Bank 1, after bootloader)
     primaryMem->slots[0].type      = SLOT_TYPE_DIRECT;
     primaryMem->slots[0].cType     = SLOT_CONTENT_APP | SLOT_CONTENT_BACKUP;
     primaryMem->slots[0].memParent = primaryMem;
     primaryMem->slots[0].addr      = FLASH_BANK1_ADDR;
     primaryMem->slots[0].size      = FLASH_BANK1_SIZE;
 
-    // Slot 1: Update staging (Bank 2)
     primaryMem->slots[1].type      = SLOT_TYPE_DIRECT;
     primaryMem->slots[1].cType     = SLOT_CONTENT_APP | SLOT_CONTENT_BACKUP;
     primaryMem->slots[1].memParent = primaryMem;
@@ -81,52 +81,6 @@ static void bootConfigureMemory(BootSettings *settings)
     primaryMem->slots[1].size      = FLASH_BANK2_SIZE;
 }
 
-/**
- * @brief System clock configuration
- *
- * HSE (25 MHz) -> PLL1 -> SYSCLK = 250 MHz
- * Minimal config: no USB, no Ethernet, no SAI clocks.
- */
-static void SystemClock_Config(void)
-{
-    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-    // Configure HSE oscillator
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState       = RCC_HSE_ON;
-    RCC_OscInitStruct.PLL.PLLState   = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource  = RCC_PLL1_SOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLM       = 5;   // 25MHz / 5 = 5MHz
-    RCC_OscInitStruct.PLL.PLLN       = 100;  // 5MHz * 100 = 500MHz VCO
-    RCC_OscInitStruct.PLL.PLLP       = 2;   // 500MHz / 2 = 250MHz SYSCLK
-    RCC_OscInitStruct.PLL.PLLQ       = 2;
-    RCC_OscInitStruct.PLL.PLLR       = 2;
-    RCC_OscInitStruct.PLL.PLLFRACN   = 0;
-    RCC_OscInitStruct.PLL.PLLRGE     = RCC_PLL1_VCIRANGE_2;
-    RCC_OscInitStruct.PLL.PLLVCOSEL  = RCC_PLL1_VCORANGE_WIDE;
-
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-        while (1);
-    }
-
-    // Configure bus clocks
-    RCC_ClkInitStruct.ClockType      = RCC_CLOCKTYPE_HCLK  | RCC_CLOCKTYPE_SYSCLK |
-                                       RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2  |
-                                       RCC_CLOCKTYPE_PCLK3;
-    RCC_ClkInitStruct.SYSCLKSource   = RCC_SYSCLKSOURCE_PLLCLK;
-    RCC_ClkInitStruct.AHBCLKDivider  = RCC_SYSCLK_DIV1;
-    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-    RCC_ClkInitStruct.APB3CLKDivider = RCC_HCLK_DIV1;
-
-    // Flash latency for 250 MHz: 5 wait states
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_5) != HAL_OK) {
-        while (1);
-    }
-}
-
-// Required by HAL for tick source (bare-metal, no RTOS)
 void SysTick_Handler(void)
 {
     HAL_IncTick();
@@ -138,41 +92,43 @@ void SysTick_Handler(void)
 
 __attribute__((weak)) void bootInitHook(void)
 {
-    bootHookInitLed();
+    // LED already initialized via raw registers above
 }
 
 __attribute__((weak)) void bootIdleStateHook(void)
 {
-    bootHookToggleLed();
+    *(volatile uint32_t *)0x42020414U ^= (1U << 13);
+    HAL_Delay(50);
 }
 
 __attribute__((weak)) void bootNoValidUpdatesHook(void)
 {
-    // No valid image found — blink fast to indicate error
-    bootHookFatalError();
+    // Fast blink forever
+    while (1) {
+        *(volatile uint32_t *)0x42020414U ^= (1U << 13);
+        HAL_Delay(100);
+    }
 }
 
 __attribute__((weak)) void bootJumpingToApplicationHook(void)
 {
-    // About to jump — turn LED off
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+    *(volatile uint32_t *)0x42020414U &= ~(1U << 13);
 }
 
 __attribute__((weak)) void bootFallbackPerformedHook(void)
 {
-    // Fallback occurred — brief double-blink
-    for (int i = 0; i < 4; i++) {
-        bootHookToggleLed();
-        for (volatile uint32_t d = 0; d < 1000000; d++);
+    for (int i = 0; i < 8; i++) {
+        *(volatile uint32_t *)0x42020414U ^= (1U << 13);
+        HAL_Delay(50);
     }
 }
 
 __attribute__((weak)) void bootHandleFallbackError(void)
 {
-    bootHookFatalError();
+    bootNoValidUpdatesHook();
 }
 
 __attribute__((weak)) void bootHandleGenericError(void)
 {
-    bootHookFatalError();
+    bootNoValidUpdatesHook();
 }

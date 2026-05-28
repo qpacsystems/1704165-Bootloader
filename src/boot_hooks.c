@@ -12,9 +12,9 @@
 #include "boot_hooks.h"
 #include "stm32h5xx_hal.h"
 
-// Status LED: PB0 (green LED on 1704165 board)
+// Status LED: PB13 (blue LED on 1704165 board)
 #define BOOT_LED_PORT   GPIOB
-#define BOOT_LED_PIN    GPIO_PIN_0
+#define BOOT_LED_PIN    GPIO_PIN_13
 
 __attribute__((weak)) void bootHookInitLed(void)
 {
