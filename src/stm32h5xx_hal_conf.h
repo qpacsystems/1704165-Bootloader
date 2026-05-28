@@ -83,6 +83,11 @@ extern "C" {
 #endif
 #ifdef HAL_PWR_MODULE_ENABLED
   #include "stm32h5xx_hal_pwr.h"
+  #include "stm32h5xx_hal_pwr_ex.h"
+#endif
+
+#ifdef HAL_RCC_MODULE_ENABLED
+  #include "stm32h5xx_hal_rcc_ex.h"
 #endif
 
 /* Assert configuration */

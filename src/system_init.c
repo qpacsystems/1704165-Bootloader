@@ -28,3 +28,14 @@ void SystemInit(void)
 
 // Required by HAL
 uint32_t SystemCoreClock = 64000000U; // Default HSI, updated after PLL config
+
+// AHB prescaler table — required by HAL_RCC_OscConfig / HAL_RCC_ClockConfig
+const uint8_t AHBPrescTable[16] = {
+    0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+    1U, 2U, 3U, 4U, 6U, 7U, 8U, 9U
+};
+
+// APB prescaler table
+const uint8_t APBPrescTable[8] = {
+    0U, 0U, 0U, 0U, 1U, 2U, 3U, 4U
+};

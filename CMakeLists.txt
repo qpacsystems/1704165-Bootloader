@@ -94,6 +94,12 @@ set(SOURCES_CYCLONE_CRYPTO
     ${CYCLONE_CRYPTO_PATH}/mac/hmac.c
 )
 
+# Cyclone common (bare-metal OS port)
+set(SOURCES_CYCLONE_COMMON
+    ${CYCLONE_COMMON_PATH}/os_port_none.c
+    ${CYCLONE_COMMON_PATH}/debug.c
+)
+
 # Minimal STM32 HAL subset (no RTOS, no networking)
 set(SOURCES_STM32_HAL
     ${STM32_HAL_PATH}/STM32H5xx_HAL_Driver/Src/stm32h5xx_hal.c
@@ -124,6 +130,7 @@ add_executable(${BINARY_NAME}
     ${SOURCES_APP}
     ${SOURCES_CYCLONE_BOOT}
     ${SOURCES_CYCLONE_CRYPTO}
+    ${SOURCES_CYCLONE_COMMON}
     ${SOURCES_STM32_HAL}
     ${SOURCES_STARTUP}
 )

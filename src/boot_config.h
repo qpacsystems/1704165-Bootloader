@@ -9,10 +9,6 @@
 #ifndef _BOOT_CONFIG_H
 #define _BOOT_CONFIG_H
 
-// MCU / HAL selection
-#define STM32H5XX_HAL_DRIVER
-#define STM32H563xx
-
 // Flash memory configuration (STM32H563VI - 2MB dual bank)
 #define FLASH_START_ADDR                0x08000000
 #define FLASH_TOTAL_SIZE                0x200000
