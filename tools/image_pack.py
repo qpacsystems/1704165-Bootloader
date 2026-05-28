@@ -21,8 +21,8 @@ import struct
 import time
 import sys
 
-# CycloneBOOT ImageHeader version (1.2.0)
-IMAGE_HEADER_VERSION = (1 << 16) | (2 << 8) | 0
+# CycloneBOOT ImageHeader version (1.3.0) — matches v2.6.2 image.h
+IMAGE_HEADER_VERSION = (1 << 16) | (3 << 8) | 0
 
 # Image types
 IMAGE_TYPE_APP = 0
@@ -64,17 +64,18 @@ def build_image_header(
     timestamp: int,
 ) -> bytes:
     """
-    Build a 64-byte CycloneBOOT ImageHeader.
+    Build a 64-byte CycloneBOOT v2.6.2 ImageHeader.
 
     Layout (all little-endian):
-      offset 0:  uint32  headVers      — header version (0x00010200)
+      offset 0:  uint32  headVers      — header version (0x00010300)
       offset 4:  uint32  imgIndex      — image index number
       offset 8:  uint8   imgType       — IMAGE_TYPE_APP (0)
       offset 9:  uint32  dataPadding   — 0 (no padding)
-      offset 13: uint32  dataSize      — payload size in bytes
-      offset 17: ImageVersion (8 bytes) — major(1) minor(1) revision(2) buildNum(4)
-      offset 25: uint64  imgTime       — Unix timestamp
-      offset 33: 27 bytes reserved     — all zeros
+      offset 13: uint32  dataSize      — total payload size (header excluded)
+      offset 17: uint32  binarySize    — firmware binary size (same as dataSize)
+      offset 21: ImageVersion (8 bytes) — major(1) minor(1) revision(2) buildNum(4)
+      offset 29: uint64  imgTime       — Unix timestamp
+      offset 37: 23 bytes reserved     — all zeros
       offset 60: uint32  headCrc       — CRC32 of bytes 0-59
     """
     major, minor, revision, build = version_tuple
@@ -87,23 +88,25 @@ def build_image_header(
         "B"       # imgType        (1)
         "I"       # dataPadding    (4)
         "I"       # dataSize       (4)
+        "I"       # binarySize     (4)
         "B"       # version.major  (1)
         "B"       # version.minor  (1)
         "H"       # version.rev    (2)
         "I"       # version.build  (4)
         "Q"       # imgTime        (8)
-        "27s",    # reserved       (27)
+        "23s",    # reserved       (23)
         IMAGE_HEADER_VERSION,
         img_index,
         IMAGE_TYPE_APP,
         0,  # dataPadding
         payload_size,
+        payload_size,  # binarySize = dataSize
         major,
         minor,
         revision,
         build,
         timestamp,
-        b"\x00" * 27,
+        b"\x00" * 23,
     )
 
     assert len(header_body) == 60, f"Header body is {len(header_body)} bytes, expected 60"
