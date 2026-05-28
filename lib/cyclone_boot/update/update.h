@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 #ifndef _UPDATE_H
@@ -48,16 +48,16 @@
 #endif
 #include "core/cboot_error.h"
 #include "error.h"
-#include "security/verify.h"
+#include "core/verify.h"
 
 // CycloneBOOT Version string
-#define CYCLONE_BOOT_UPDATE_VERSION_STRING "2.5.4"
+#define CYCLONE_BOOT_UPDATE_VERSION_STRING "2.6.2"
 // CycloneBOOT Major version
 #define CYCLONE_BOOT_UPDATE_MAJOR_VERSION 2
 // CycloneBOOT Minor version
-#define CYCLONE_BOOT_UPDATE_MINOR_VERSION 5
+#define CYCLONE_BOOT_UPDATE_MINOR_VERSION 6
 // CycloneBOOT Revision number
-#define CYCLONE_BOOT_UPDATE_REV_NUMBER 4
+#define CYCLONE_BOOT_UPDATE_REV_NUMBER 2
 
 #define IMAGE_MAX_CHECK_DATA_SIZE 512
 

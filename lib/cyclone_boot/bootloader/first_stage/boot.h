@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,30 +26,36 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 #ifndef _BOOT_H
 #define _BOOT_H
 
+#include "core/mcu.h"
+#include "core/crc32.h"
 #include "core/flash.h"
 #include "core/cboot_error.h"
+#include "image/image.h"
 #include "debug.h"
 
 typedef struct {
    const FlashDriver *driver;
-   uintptr_t address;  //Address of second stage bl
+   uint32_t self_address; //Address of first stage bl slot
+   uint32_t self_size; //Size of first stage bl slot
+   uint32_t bl_address;  //Address of second stage bl slot
+   uint32_t app_address;  //Address of the current firmware app slot
    uint32_t offset;
    uint32_t *slots;
    size_t slot_count;
-   uintptr_t update_address;  //Address of the slot containing bl update
+   uint32_t update_address;  //Address of the slot containing bl update (pending update) slot
 } BootContext;
 
 cboot_error_t bootFsm(BootContext *context);
-
-cboot_error_t checkSecondStageBlIntegrity(BootContext *context);
-bool_t checkForSecondStageBlUpdate(BootContext *context);
+cboot_error_t getSecondStageBlIndex(BootContext *context, uint8_t *index);
+cboot_error_t checkForSecondStageBlUpdate(BootContext *context, uint8_t currentIndex, bool_t *updateFound);
 cboot_error_t updateSecondStageBl(BootContext *context);
+
 void jumpToSecondStageBl(BootContext *context);
 
 #if ((defined(__ARMCC_VERSION) && (__ARMCC_VERSION >= 6010050)) || defined(__GNUC__) ||            \

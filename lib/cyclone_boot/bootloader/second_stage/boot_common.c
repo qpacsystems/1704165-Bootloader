@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 // Switch to the appropriate trace level
@@ -45,6 +45,14 @@
 #include "second_stage/boot.h"
 #include "second_stage/boot_common.h"
 
+#if (BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT == ENABLED)
+#include "second_stage/boot_secure.h"
+#endif
+
+#ifndef BOOT_RUNTIME_INTEGRITY_CHECK_ALGO
+#define BOOT_RUNTIME_INTEGRITY_CHECK_ALGO &crc32HashAlgo
+#endif
+
 // Include crypto header files needed for image decryption
 #if (BOOT_EXT_MEM_ENCRYPTION_SUPPORT == ENABLED)
 #include "cipher/aes.h"
@@ -60,6 +68,8 @@
 
 bool_t bootCheckNoSlotOverlap(Slot *s1, Slot *s2);
 
+cboot_error_t bootCheckRuntimeImageIntegrity(BootContext *context, Slot *slot);
+
 /**
  * @brief Intialize bootloader primary flash memory.
  * @param[in,out] context Pointer the bootloader context.
@@ -68,8 +78,7 @@ bool_t bootCheckNoSlotOverlap(Slot *s1, Slot *s2);
  * @return Error code
  **/
 
-cboot_error_t bootInitPrimaryMem(BootContext *context, BootSettings *settings)
-{
+cboot_error_t bootInitPrimaryMem(BootContext *context, BootSettings *settings) {
    error_t error;
    Memory *primaryMemory;
    FlashDriver *flashDriver;
@@ -85,10 +94,10 @@ cboot_error_t bootInitPrimaryMem(BootContext *context, BootSettings *settings)
       return CBOOT_ERROR_INVALID_PARAMETERS;
 
    // Point to the primary memory context
-   primaryMemory = (Memory *)&context->memories[0];
+   primaryMemory = (Memory *) &context->memories[0];
 
    // Point to a memory driver
-   flashDriver = (FlashDriver *)settings->memories[0].driver;
+   flashDriver = (FlashDriver *) settings->memories[0].driver;
 
    // Initialize primary (internal) a memory flash driver
    error = flashDriver->init();
@@ -203,8 +212,7 @@ cboot_error_t bootInitPrimaryMem(BootContext *context, BootSettings *settings)
  * @return Error code
  **/
 
-cboot_error_t bootInitSecondaryMem(BootContext *context, BootSettings *settings)
-{
+cboot_error_t bootInitSecondaryMem(BootContext *context, BootSettings *settings) {
    error_t error;
    Memory *secondaryMemory;
    FlashDriver *flashDriver;
@@ -220,13 +228,13 @@ cboot_error_t bootInitSecondaryMem(BootContext *context, BootSettings *settings)
       return CBOOT_ERROR_INVALID_PARAMETERS;
 
    // Point to the secondary memory context
-   secondaryMemory = (Memory *)&context->memories[1];
+   secondaryMemory = (Memory *) &context->memories[1];
 
    // Set secondary flash memory driver
    secondaryMemory->driver = settings->memories[1].driver;
 
    // Point to a memory driver
-   flashDriver = (FlashDriver *)secondaryMemory->driver;
+   flashDriver = (FlashDriver *) secondaryMemory->driver;
 
    // Initialize a secondary (internal) memory flash driver
    error = flashDriver->init();
@@ -303,8 +311,7 @@ cboot_error_t bootInitSecondaryMem(BootContext *context, BootSettings *settings)
  * @erturn Error code.
  **/
 
-cboot_error_t bootSelectUpdateImageSlot(BootContext *context, Slot *selectedSlot)
-{
+cboot_error_t bootSelectUpdateImageSlot(BootContext *context, Slot *selectedSlot) {
    cboot_error_t cerror;
    uint_t i;
    Slot tmpSlot;
@@ -423,15 +430,14 @@ cboot_error_t bootSelectUpdateImageSlot(BootContext *context, Slot *selectedSlot
  * @return Status code
  **/
 
-cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
-{
+cboot_error_t bootUpdateApp(BootContext *context, Slot *slot) {
    error_t error;
    size_t n;
    size_t imgAppSize;
    uint32_t readAddr;
    uint32_t writeAddr;
    ImageHeader *header;
-   Crc32Context integrityContext;
+   HashContext integrityContext;
    const HashAlgo *integrityAlgo;
    Memory *intMem;
    FlashDriver *internalDriver;
@@ -445,6 +451,8 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
    AesContext cipherContext;
    const CipherAlgo *cipherAlgo;
    uint8_t iv[INIT_VECT_SIZE];
+   uint32_t cipherMagicCRC;
+   bool_t isCipherKeyOk = FALSE;
 #endif
    uint8_t buffer[512];
 
@@ -459,23 +467,34 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
    intMem = &context->memories[0];
 #if (EXTERNAL_MEMORY_SUPPORT == ENABLED)
    // Point to the slot memory descriptor
-   extMem = (Memory *)slot->memParent;
+   extMem = (Memory *) slot->memParent;
 #endif
 
    // Get slot start address
    readAddr = slot->addr;
-   // Get internal stlot address
+   // Get internal slot address
    writeAddr = intMem->slots[0].addr;
 
-   // Select CRC32 integrity algo
-   integrityAlgo = CRC32_HASH_ALGO;
+   // Select integrity algo
+   if(BOOT_INTEGRITY_CHECK_ALGO != &crc32HashAlgo &&
+      BOOT_INTEGRITY_CHECK_ALGO != &sha1HashAlgo &&
+      BOOT_INTEGRITY_CHECK_ALGO != &sha224HashAlgo &&
+      BOOT_INTEGRITY_CHECK_ALGO != &sha256HashAlgo &&
+      BOOT_INTEGRITY_CHECK_ALGO != &sha384HashAlgo &&
+      BOOT_INTEGRITY_CHECK_ALGO != &sha512HashAlgo)
+   {
+      TRACE_ERROR("Invalid hash algorithm pointer!\n");
+      return CBOOT_ERROR_FAILURE;
+   }
+
+   integrityAlgo = BOOT_INTEGRITY_CHECK_ALGO;
 
 #if (EXTERNAL_MEMORY_SUPPORT == ENABLED)
    // Point to the external memory flash driver
-   externalDriver = (FlashDriver *)extMem->driver;
+   externalDriver = (FlashDriver *) extMem->driver;
 #endif
    // Point to the internal memory flash driver
-   internalDriver = (FlashDriver *)intMem->driver;
+   internalDriver = (FlashDriver *) intMem->driver;
    // Get internal driver information
    error = internalDriver->getInfo(&internalDriverInfo);
    if(error)
@@ -496,10 +515,10 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
       return CBOOT_ERROR_FAILURE;
 
    // Point to image header
-   header = (ImageHeader *)buffer;
+   header = (ImageHeader *) buffer;
 
    // Write new image header into primary (internal) memory slot
-   error = internalDriver->write(writeAddr, (uint8_t *)header, sizeof(ImageHeader));
+   error = internalDriver->write(writeAddr, (uint8_t *) header, sizeof(ImageHeader));
    // Is any error?
    if(error)
       return CBOOT_ERROR_FAILURE;
@@ -507,11 +526,11 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
    // Save image application data size
    imgAppSize = header->dataSize;
 
-   // Initialize CRC32 integrity algo context
+   // Initialize HASH integrity algo context
    integrityAlgo->init(&integrityContext);
 
    // Start image check crc computation with image header
-   integrityAlgo->update(&integrityContext, (uint8_t *)&header->headCrc, CRC32_DIGEST_SIZE);
+   integrityAlgo->update(&integrityContext, (uint8_t *) &header->headCrc, CRC32_DIGEST_SIZE);
 
    // Update write address
    writeAddr += sizeof(ImageHeader);
@@ -547,7 +566,7 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
    cipherAlgo = AES_CIPHER_ALGO;
 
    // Initialize AES cipher algo context
-   error = cipherAlgo->init(&cipherContext, (uint8_t *)context->psk, context->pskSize);
+   error = cipherAlgo->init(&cipherContext, (uint8_t *) context->psk, context->pskSize);
    // Is any error?
    if(error)
       return CBOOT_ERROR_FAILURE;
@@ -568,6 +587,16 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
    // Is any error?
    if(error)
       return CBOOT_ERROR_FAILURE;
+
+   // Check magic word for cipher key issues
+   memcpy(&cipherMagicCRC, buffer, sizeof(uint32_t));
+   cipherCheckMagicNumberCrc(cipherMagicCRC, &isCipherKeyOk);
+
+   if(!isCipherKeyOk)
+   {
+      TRACE_ERROR("Cipher Key Check Failed! Aborting update.\r\n");
+      return CBOOT_ERROR_INVALID_PARAMETERS;
+   }
 
    // Discard image cipher magic number
    readAddr += AES_BLOCK_SIZE;
@@ -598,7 +627,7 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
          return CBOOT_ERROR_FAILURE;
 #endif
 
-      // Update crc computation
+      // Update HASH integrity computation
       integrityAlgo->update(&integrityContext, buffer, n);
 
       // Avoid to write less that internal flash minimum write size
@@ -622,7 +651,7 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
    }
 
    ////////////////////////////////////////////////////////////////////////////
-   // Generate an image CRC32 integrity check section
+   // Generate an image HASH integrity check section
 
    // Reset n if it was a multiple of internal flash minimum write size
    if((n > 0) && ((n % internalDriverInfo->writeSize) == 0))
@@ -630,13 +659,13 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
       n = 0;
    }
 
-   // Finalize crc32 integrity algo computation
+   // Finalize HASH integrity algo computation
    integrityAlgo->final(&integrityContext, buffer + n);
 
    // Debug message
    TRACE_DEBUG("\r\n");
-   TRACE_DEBUG("New image application CRC:\r\n");
-   TRACE_DEBUG_ARRAY("CRC RAW: ", buffer + n, integrityAlgo->digestSize);
+   TRACE_DEBUG("New image application DIGEST:\r\n");
+   TRACE_DEBUG_ARRAY("DIGEST RAW: ", buffer + n, integrityAlgo->digestSize);
 
    // Write computed image check data in primary (internal) memory slot
    error = internalDriver->write(writeAddr, buffer, n + integrityAlgo->digestSize);
@@ -658,8 +687,7 @@ cboot_error_t bootUpdateApp(BootContext *context, Slot *slot)
  * @return Error code.
  **/
 
-cboot_error_t bootCheckImage(BootContext *context, Slot *slot)
-{
+cboot_error_t bootCheckImage(BootContext *context, Slot *slot) {
    error_t error;
    cboot_error_t cerror;
    uint32_t addr;
@@ -668,9 +696,6 @@ cboot_error_t bootCheckImage(BootContext *context, Slot *slot)
    ImageHeader *header;
    Memory *memory;
    const FlashInfo *info;
-   HashAlgo *crcAlgo;
-   Crc32Context crcContext;
-   uint8_t digest[CRC32_DIGEST_SIZE];
    uint8_t buffer[sizeof(ImageHeader)];
    FlashDriver *driver;
 
@@ -687,10 +712,10 @@ cboot_error_t bootCheckImage(BootContext *context, Slot *slot)
       return CBOOT_ERROR_INVALID_PARAMETERS;
 
    // Point to slot memory descriptor
-   memory = (Memory *)slot->memParent;
+   memory = (Memory *) slot->memParent;
 
    // Get memory info
-   driver = (FlashDriver *)memory->driver;
+   driver = (FlashDriver *) memory->driver;
    error = driver->getInfo(&info);
    // Is any error?
    if(error)
@@ -703,7 +728,7 @@ cboot_error_t bootCheckImage(BootContext *context, Slot *slot)
       return CBOOT_ERROR_FAILURE;
 
    // Point to internal image header
-   header = (ImageHeader *)buffer;
+   header = (ImageHeader *) buffer;
 
    // Check internal image header
    cerror = imageCheckHeader(header);
@@ -751,7 +776,7 @@ cboot_error_t bootCheckImage(BootContext *context, Slot *slot)
       cipherAlgo = AES_CIPHER_ALGO;
 
       // Initialize AES cipher algo context
-      error = cipherAlgo->init(&cipherContext, (uint8_t *)context->psk, context->pskSize);
+      error = cipherAlgo->init(&cipherContext, (uint8_t *) context->psk, context->pskSize);
       // Is any error?
       if(error)
          return CBOOT_ERROR_FAILURE;
@@ -769,7 +794,7 @@ cboot_error_t bootCheckImage(BootContext *context, Slot *slot)
          return CBOOT_ERROR_FAILURE;
 
       // Save cipher image magic number crc for later check
-      magicNumberCrc = *(uint32_t *)buffer;
+      magicNumberCrc = *(uint32_t *) buffer;
 
       // Encrypted padded cipher image magic number crc is also part of the check
       // data calculation Add encrypted padded cipher image magic number crc size
@@ -783,55 +808,6 @@ cboot_error_t bootCheckImage(BootContext *context, Slot *slot)
       // Debug message
       TRACE_ERROR("Image size is invalid!\r\n");
       return CBOOT_ERROR_INVALID_LENGTH;
-   }
-
-   // Point to the CRC32 algorithm
-   crcAlgo = (HashAlgo *)CRC32_HASH_ALGO;
-   // Initialize CRC algorithm
-   crcAlgo->init(&crcContext);
-   // Start image check computation with image header crc
-   crcAlgo->update(&crcContext, (uint8_t *)&header->headCrc, CRC32_DIGEST_SIZE);
-
-   // Process image binary data
-   while(length > 0)
-   {
-      // Prevent read operation to overflow buffer size
-      n = MIN(sizeof(buffer), length);
-
-      // Read image binary data
-      error = driver->read(addr, buffer, n);
-      // Is any error?
-      if(error)
-         return CBOOT_ERROR_FAILURE;
-
-      // Update image binary data crc computation
-      crcAlgo->update(&crcContext, buffer, n);
-
-      // Increment external flash memory word address
-      addr += n;
-      // Remaining bytes to be read
-      length -= n;
-   }
-
-   // Finalize image binary data crc computation
-   crcAlgo->final(&crcContext, digest);
-
-   // Read given image binary crc
-   error = driver->read(addr, buffer, CRC32_DIGEST_SIZE);
-   // Is any error?
-   if(error)
-      return CBOOT_ERROR_FAILURE;
-
-   // Compare given against computed image binary crc
-   if(memcmp(buffer, digest, CRC32_DIGEST_SIZE) != 0)
-   {
-      // Debug message
-      TRACE_ERROR("Image binary data is not valid!\r\n");
-      TRACE_DEBUG("Computed check CRC: ");
-      TRACE_DEBUG_ARRAY("", digest, CRC32_DIGEST_SIZE);
-      TRACE_DEBUG("Given Check CRC: ");
-      TRACE_DEBUG_ARRAY("", buffer, CRC32_DIGEST_SIZE);
-      return CBOOT_ERROR_FIRMWARE_CORRUPTED;
    }
 
 #if ((EXTERNAL_MEMORY_SUPPORT == ENABLED) && (BOOT_EXT_MEM_ENCRYPTION_SUPPORT == ENABLED))
@@ -856,14 +832,156 @@ cboot_error_t bootCheckImage(BootContext *context, Slot *slot)
 }
 
 /**
+ * @brief Check signature or integrity of current running image.
+ * @param[in] slot Pointer to the slot containing the image to be checked.
+ * @return Error code.
+ **/
+
+cboot_error_t bootCheckRuntimeImage(BootContext *context, Slot *slot) {
+   cboot_error_t cerror = CBOOT_ERROR_FAILURE;
+
+#if BOOT_RUNTIME_INTEGRITY_CHECK_SUPPORT == ENABLED
+   cerror = bootCheckRuntimeImageIntegrity(context, slot);
+#endif
+
+#if BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT == ENABLED
+   cerror = bootCheckRuntimeImageSignature(context, slot);
+#endif
+
+   return cerror;
+}
+
+/**
+ * @brief Check integrity of current running image.
+ * @param[in] slot Pointer to the slot containing the image to be checked.
+ * @return Error code.
+ **/
+cboot_error_t bootCheckRuntimeImageIntegrity(BootContext *context, Slot *slot) {
+   error_t error;
+   cboot_error_t cerror;
+   uint32_t addr;
+   ImageHeader *header;
+   FlashDriver *driver;
+   const FlashInfo *info;
+   Memory *memory;
+   HashContext hashContext;
+   size_t length;
+   size_t n;
+   uint8_t buffer[sizeof(ImageHeader)];
+   uint8_t digest[MAX_HASH_DIGEST_SIZE] = {0};
+   const HashAlgo *integrityAlgo;
+
+   // Check parameter validity
+   if(context == NULL || slot == NULL)
+      return CBOOT_ERROR_INVALID_PARAMETERS;
+
+   // Point to slot memory descriptor
+   memory = (Memory *) slot->memParent;
+
+   // Get memory info
+   driver = (FlashDriver *) memory->driver;
+   error = driver->getInfo(&info);
+   // Is any error?
+   if(error)
+      return CBOOT_ERROR_FAILURE;
+
+   // Read slot data
+   error = driver->read(slot->addr, buffer, sizeof(buffer));
+   // Is any error?
+   if(error)
+      return CBOOT_ERROR_FAILURE;
+
+   // Point to internal image header
+   header = (ImageHeader *) buffer;
+
+   // Check internal image header
+   cerror = imageCheckHeader(header);
+   // Is any error?
+   if(cerror)
+   {
+      // Debug message
+      TRACE_ERROR("Image header is not valid!\r\n");
+      return cerror;
+   }
+
+   // Discard internal image header
+   addr = slot->addr + sizeof(ImageHeader);
+
+   // Save internal image data size
+   length = header->dataSize;
+
+   // Select integrity algo
+   if(BOOT_RUNTIME_INTEGRITY_CHECK_ALGO != &crc32HashAlgo &&
+      BOOT_RUNTIME_INTEGRITY_CHECK_ALGO != &sha1HashAlgo &&
+      BOOT_RUNTIME_INTEGRITY_CHECK_ALGO != &sha224HashAlgo &&
+      BOOT_RUNTIME_INTEGRITY_CHECK_ALGO != &sha256HashAlgo &&
+      BOOT_RUNTIME_INTEGRITY_CHECK_ALGO != &sha384HashAlgo &&
+      BOOT_RUNTIME_INTEGRITY_CHECK_ALGO != &sha512HashAlgo)
+   {
+      TRACE_ERROR("Invalid hash algorithm pointer!\n");
+      return CBOOT_ERROR_FAILURE;
+   }
+
+   integrityAlgo = BOOT_RUNTIME_INTEGRITY_CHECK_ALGO;
+
+   // Initialize integrity algorithm
+   integrityAlgo->init(&hashContext);
+   // Start image check computation with image header crc
+   integrityAlgo->update(&hashContext, (uint8_t *) &header->headCrc, CRC32_DIGEST_SIZE);
+
+   // Process image binary data
+   while(length > 0)
+   {
+      // Prevent read operation to overflow buffer size
+      n = MIN(sizeof(buffer), length);
+
+      // Read image binary data
+      error = driver->read(addr, buffer, n);
+      // Is any error?
+      if(error)
+         return CBOOT_ERROR_FAILURE;
+
+      // Update image binary data crc computation
+      integrityAlgo->update(&hashContext, buffer, n);
+
+      // Increment external flash memory word address
+      addr += n;
+      // Remaining bytes to be read
+      length -= n;
+   }
+
+   // Finalize image binary data crc computation
+   integrityAlgo->final(&hashContext, digest);
+
+   // Read given image binary crc
+   error = driver->read(addr, buffer, integrityAlgo->digestSize);
+   // Is any error?
+   if(error)
+      return CBOOT_ERROR_FAILURE;
+
+   // Compare given against computed image binary crc
+   if(memcmp(buffer, digest, integrityAlgo->digestSize) != 0)
+   {
+      // Debug message
+      TRACE_ERROR("Image binary data is not valid!\r\n");
+      TRACE_DEBUG("Computed check CRC: ");
+      TRACE_DEBUG_ARRAY("", digest, integrityAlgo->digestSize);
+      TRACE_DEBUG("Given Check CRC: ");
+      TRACE_DEBUG_ARRAY("", buffer, integrityAlgo->digestSize);
+      return CBOOT_ERROR_FIRMWARE_CORRUPTED;
+   }
+
+   return CBOOT_NO_ERROR;
+}
+
+/**
  * @brief Get header from the image inside the given slot.
  * @param[in] slot Pointer to the slot that contains the image header
  * @param[out] header Pointer that will hold the retrieved image header.
  * @return Error code.
  **/
 
-cboot_error_t bootGetSlotImgHeader(Slot *slot, ImageHeader *header)
-{
+cboot_error_t bootGetSlotImgHeader(Slot *slot, ImageHeader *header) {
    error_t error;
    cboot_error_t cerror;
    uint8_t buffer[sizeof(ImageHeader)];
@@ -878,8 +996,8 @@ cboot_error_t bootGetSlotImgHeader(Slot *slot, ImageHeader *header)
    if(slot == NULL)
       return cerror;
 
-   memory = (Memory *)slot->memParent;
-   driver = (FlashDriver *)memory->driver;
+   memory = (Memory *) slot->memParent;
+   driver = (FlashDriver *) memory->driver;
 
    // Read first slot data that should correspond to the image header
    error = driver->read(slot->addr, buffer, sizeof(buffer));
@@ -906,8 +1024,7 @@ cboot_error_t bootGetSlotImgHeader(Slot *slot, ImageHeader *header)
  * @return Error code.
  **/
 
-cboot_error_t bootCheckSlotAppResetVector(Slot *slot)
-{
+cboot_error_t bootCheckSlotAppResetVector(Slot *slot) {
    error_t error;
    cboot_error_t cerror;
    uint32_t resetVector;
@@ -923,14 +1040,14 @@ cboot_error_t bootCheckSlotAppResetVector(Slot *slot)
    if(slot == NULL)
       return CBOOT_ERROR_INVALID_PARAMETERS;
 
-   memory = (Memory *)slot->memParent;
-   driver = (FlashDriver *)memory->driver;
+   memory = (Memory *) slot->memParent;
+   driver = (FlashDriver *) memory->driver;
 
    // Compute reset vector address offset (slot app start address offset + 4)
    resetVectorAddrOffset = mcuGetVtorOffset() + 0x4;
 
    // Check reset vector of the current application
-   error = driver->read(slot->addr + resetVectorAddrOffset, (uint8_t *)&resetVector,
+   error = driver->read(slot->addr + resetVectorAddrOffset, (uint8_t *) &resetVector,
       sizeof(resetVector));
 
    // Check there is no error?
@@ -955,8 +1072,7 @@ cboot_error_t bootCheckSlotAppResetVector(Slot *slot)
  * @param[in] newState New state to switch to
  **/
 
-void bootChangeState(BootContext *context, BootState newState)
-{
+void bootChangeState(BootContext *context, BootState newState) {
    // Update Bootloader state
    context->state = newState;
    context->busy = TRUE;
@@ -969,8 +1085,7 @@ void bootChangeState(BootContext *context, BootState newState)
  * @return TRUE if slots overlap, else FALSE
  **/
 
-bool_t bootCheckNoSlotOverlap(Slot *s1, Slot *s2)
-{
+bool_t bootCheckNoSlotOverlap(Slot *s1, Slot *s2) {
    uint32_t slot1_end = s1->addr + s1->size;
    uint32_t slot2_end = s2->addr + s2->size;
 

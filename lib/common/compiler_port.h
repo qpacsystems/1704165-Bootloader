@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  * 
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
@@ -24,7 +24,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 #ifndef _COMPILER_PORT_H
@@ -47,19 +47,21 @@ extern "C" {
 
 //TI C2000-CGT compiler?
 #if defined(__TI_COMPILER_VERSION__) && defined(__TMS320C2000__)
-   typedef char char_t;
-   typedef int32_t int_t;
-   typedef uint32_t uint_t;
-   typedef int16_t int8_t;
-   typedef uint16_t uint8_t;
+typedef char char_t;
+typedef int32_t int_t;
+typedef uint32_t uint_t;
+typedef int16_t int8_t;
+typedef uint16_t uint8_t;
 #else
-   typedef char char_t;
-   typedef signed int int_t;
-   typedef unsigned int uint_t;
+typedef char char_t;
+typedef signed int int_t;
+typedef unsigned int uint_t;
 #endif
 
-#if !defined(R_TYPEDEFS_H) && !defined(USE_CHIBIOS_2)
-   typedef int bool_t;
+#if defined(__ADSPSC5xx__)
+typedef uint8_t bool_t;
+#elif !defined(R_TYPEDEFS_H) && !defined(USE_CHIBIOS_2)
+typedef int bool_t;
 #endif
 
 //ARM compiler?
@@ -165,45 +167,45 @@ extern "C" {
 
 //ARM compiler V6?
 #if defined(__ARMCC_VERSION) && (__ARMCC_VERSION >= 6010050)
-   int vsnprintf(char *dest, size_t size, const char *format, va_list ap);
-   char *strtok_r(char *s, const char *delim, char **last);
+int vsnprintf(char *dest, size_t size, const char *format, va_list ap);
+char *strtok_r(char *s, const char *delim, char **last);
 //GCC compiler (for PowerPC architecture)?
 #elif defined(__GNUC__) && defined(__PPC_EABI__)
-   typedef uint32_t time_t;
-   int strcasecmp(const char *s1, const char *s2);
-   int strncasecmp(const char *s1, const char *s2, size_t n);
-   char *strtok_r(char *s, const char *delim, char **last);
+typedef uint32_t time_t;
+int strcasecmp(const char *s1, const char *s2);
+int strncasecmp(const char *s1, const char *s2, size_t n);
+char *strtok_r(char *s, const char *delim, char **last);
 //GCC compiler?
 #elif defined(__GNUC__)
-   int strcasecmp(const char *s1, const char *s2);
-   int strncasecmp(const char *s1, const char *s2, size_t n);
-   char *strtok_r(char *s, const char *delim, char **last);
+int strcasecmp(const char *s1, const char *s2);
+int strncasecmp(const char *s1, const char *s2, size_t n);
+char *strtok_r(char *s, const char *delim, char **last);
 //Tasking compiler?
 #elif defined(__TASKING__)
-   char *strtok_r(char *s, const char *delim, char **last);
+char *strtok_r(char *s, const char *delim, char **last);
 //Microchip XC32 compiler?
 #elif defined(__XC32)
    #define sprintf _sprintf
-   int sprintf(char *str, const char *format, ...);
-   int strcasecmp(const char *s1, const char *s2);
-   int strncasecmp(const char *s1, const char *s2, size_t n);
-   char *strtok_r(char *s, const char *delim, char **last);
+int sprintf(char *str, const char *format, ...);
+int strcasecmp(const char *s1, const char *s2);
+int strncasecmp(const char *s1, const char *s2, size_t n);
+char *strtok_r(char *s, const char *delim, char **last);
 //NXP CodeWarrior compiler?
 #elif defined(__CWCC__)
-   typedef uint32_t time_t;
-   int strcasecmp(const char *s1, const char *s2);
-   int strncasecmp(const char *s1, const char *s2, size_t n);
-   char *strtok_r(char *s, const char *delim, char **last);
+typedef uint32_t time_t;
+int strcasecmp(const char *s1, const char *s2);
+int strncasecmp(const char *s1, const char *s2, size_t n);
+char *strtok_r(char *s, const char *delim, char **last);
 //Renesas CC-RX compiler?
 #elif defined(__CCRX__)
-   int strcasecmp(const char *s1, const char *s2);
-   int strncasecmp(const char *s1, const char *s2, size_t n);
-   char *strtok_r(char *s, const char *delim, char **last);
+int strcasecmp(const char *s1, const char *s2);
+int strncasecmp(const char *s1, const char *s2, size_t n);
+char *strtok_r(char *s, const char *delim, char **last);
 //TI CGT compiler?
 #elif defined(__TI_COMPILER_VERSION__)
-   int strcasecmp(const char *s1, const char *s2);
-   int strncasecmp(const char *s1, const char *s2, size_t n);
-   char *strtok_r(char *s, const char *delim, char **last);
+int strcasecmp(const char *s1, const char *s2);
+int strncasecmp(const char *s1, const char *s2, size_t n);
+char *strtok_r(char *s, const char *delim, char **last);
 #endif
 
 //ARM compiler V6?
@@ -265,31 +267,31 @@ extern "C" {
 #endif
 
 #ifndef __weak_func
-   //ARM compiler V6?
+//ARM compiler V6?
    #if defined(__ARMCC_VERSION) && (__ARMCC_VERSION >= 6010050)
       #define __weak_func __attribute__((weak))
-   //GCC compiler?
+//GCC compiler?
    #elif defined(__GNUC__)
       #define __weak_func __attribute__((weak))
-   //ARM compiler?
+//ARM compiler?
    #elif defined(__CC_ARM)
       #define __weak_func __weak
-   //IAR compiler?
+//IAR compiler?
    #elif defined(__IAR_SYSTEMS_ICC__)
       #define __weak_func __weak
-   //Tasking compiler?
+//Tasking compiler?
    #elif defined(__TASKING__)
       #define __weak_func __attribute__((weak))
-   //NXP CodeWarrior compiler?
+//NXP CodeWarrior compiler?
    #elif defined(__CWCC__)
       #define __weak_func
-   //Renesas CC-RX compiler?
+//Renesas CC-RX compiler?
    #elif defined(__CCRX__)
       #define __weak_func
-   //TI CGT compiler?
+//TI CGT compiler?
    #elif defined(__TI_COMPILER_VERSION__)
       #define __weak_func __attribute__((weak))
-   //Win32 compiler?
+//Win32 compiler?
    #elif defined(_WIN32)
       #define __weak_func
    #endif

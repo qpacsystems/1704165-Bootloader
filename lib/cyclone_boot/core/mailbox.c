@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 // Switch to the appropriate trace level
@@ -245,10 +245,14 @@ void mailBoxClearBootCounter(void) {
  **/
 void mailBoxSetPsk(uint8_t *psk, uint32_t pskSize)
 {
-   if(pskSize != 0 && pskSize <= BOOT_MBX_PSK_MAX_SIZE)
+   if((pskSize != 0 && pskSize <= BOOT_MBX_PSK_MAX_SIZE) && psk != NULL)
    {
       bootMailBox.pskSize = pskSize;
       memcpy(bootMailBox.psk, psk, pskSize);
+   }
+   else
+   {
+      bootMailBox.pskSize = 0;
    }
 }
 
@@ -261,7 +265,14 @@ void mailBoxSetPsk(uint8_t *psk, uint32_t pskSize)
 void mailBoxGetPsk(uint8_t *psk, uint32_t *pskSize)
 {
    *pskSize = bootMailBox.pskSize;
-   memcpy(psk, bootMailBox.psk, bootMailBox.pskSize);
+   if(*pskSize <= BOOT_MBX_PSK_MAX_SIZE && psk != NULL)
+   {
+      memcpy(psk, bootMailBox.psk, bootMailBox.pskSize);
+   }
+   else
+   {
+      *pskSize = 0;
+   }
 }
 
 /**

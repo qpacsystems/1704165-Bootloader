@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 #ifndef _IMAGE_H
@@ -38,7 +38,7 @@
 #include "core/cboot_error.h"
 #include "core/crypto.h"
 #include "memory/memory.h"
-#include "security/verify.h"
+#include "core/verify.h"
 
 /*
  * CycloneBOOT Open is licensed under GPL version 2. In particular:
@@ -139,7 +139,7 @@ typedef enum
 // Image Header Major version
 #define IMAGE_HEADER_VERSION_MAJOR 1
 // Image Header Minor version
-#define IMAGE_HEADER_VERSION_MINOR 2
+#define IMAGE_HEADER_VERSION_MINOR 3
 // Image Header Revision number
 #define IMAGE_HEADER_VERSION_PATCH 0
 // Image Header version
@@ -174,9 +174,10 @@ typedef __packed_struct
    uint8_t imgType;        ///< Image type
    uint32_t dataPadding;   ///< Image data padding
    uint32_t dataSize;      ///< Image data size
+   uint32_t binarySize;    ///<Image firmware size
    ImageVersion dataVers;  ///< Image data version
    uint64_t imgTime;       ///< Image data generated time
-   uint8_t reserved[27];   ///< Reserved field
+   uint8_t reserved[23];   ///< Reserved field
    uint32_t headCrc;       ///< Image header CRC32 integrity tag
 }
 ImageHeader;
@@ -212,9 +213,10 @@ __start_packed typedef struct
    uint8_t imgType;        ///< Image type
    uint32_t dataPadding;   ///< Image data padding
    uint32_t dataSize;      ///< Image data size
+   uint32_t binarySize;    ///<Image firmware size
    ImageVersion dataVers;  ///< Image data version
    uint64_t imgTime;       ///< Image data generated time
-   uint8_t reserved[27];   ///< Reserved field
+   uint8_t reserved[23];   ///< Reserved field
    uint32_t headCrc;       ///< Image header CRC32 integrity tag
 } ImageHeader __end_packed;
 

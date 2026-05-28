@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,14 +26,11 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
-#include "core/flash.h"
-#include "core/mcu.h"
-#include "core/crc32.h"
-#include "image/image.h"
-#include "boot.h"
+#include "first_stage/boot.h"
+#include "first_stage/boot_common.h"
 
 /**
  * @brief Bootloader Task routine
@@ -42,88 +39,121 @@
  **/
 cboot_error_t bootFsm(BootContext *context) {
    cboot_error_t error;
+   bool_t updateFound = FALSE;
+   uint8_t blImageIndex = 0;
 
    error = CBOOT_NO_ERROR;
 
-   if(context->address == context->slots[0])
+   if(context == NULL || context->driver == NULL)
+      return CBOOT_ERROR_FAILURE;
+
+   if(context->slot_count == 0)
+      return CBOOT_ERROR_INVALID_PARAMETERS;
+
+   if(context->self_address == 0)
    {
-      TRACE_ERROR("Second stage bl address and download slot address is same. Aborting.\r\n");
+      TRACE_ERROR("Invalid first stage bl address. Aborting.\r\n");
       return CBOOT_ERROR_INVALID_PARAMETERS;
    }
+
+   if(context->bl_address == 0)
+   {
+      TRACE_ERROR("Invalid second stage bl address. Aborting.\r\n");
+      return CBOOT_ERROR_INVALID_PARAMETERS;
+   }
+
+   // Making sure we are not accessing invalid memory
+   for(size_t i = 0; i < context->slot_count; i++)
+   {
+      if(context->self_address == context->slots[i])
+      {
+         TRACE_ERROR("First stage bl address overlaps with slot %d. Aborting.\r\n", i);
+         return CBOOT_ERROR_INVALID_PARAMETERS;
+      }
+
+      if(context->bl_address == context->slots[i])
+      {
+         TRACE_ERROR("Second stage bl address overlaps with slot %d. Aborting.\r\n", i);
+         return CBOOT_ERROR_INVALID_PARAMETERS;
+      }
+   }
+
+   // Fetching the index that will be compared later on to determine if an update should be performed
+   error = getSecondStageBlIndex(context, &blImageIndex);
+   if(error != CBOOT_NO_ERROR)
+      return error;
 
    do
    {
       // Check slots to see if an update is available
-      // If an update is available, copy it over the second stage slot, verify and reboot
-      if(checkForSecondStageBlUpdate(context))
+      error = checkForSecondStageBlUpdate(context, blImageIndex, &updateFound);
+      if(error != CBOOT_NO_ERROR)
+         break;
+
+      if(updateFound)
       {
+         // If an update is available, copy it over the second stage slot
          error = updateSecondStageBl(context);
          if(error != CBOOT_NO_ERROR)
          {
             TRACE_ERROR("Failed to update second stage bl.\r\n");
             break;
-            //TODO: probably have a user definable callback function here
+            //TODO: implement a user definable callback function here
+            //TODO: recovery here
          }
       }
 
-      // If no update is available, verify second stage slot and jump to it
-      error = checkSecondStageBlIntegrity(context);
+      // If no update is available, verify the second stage slot
+      error = bootCheckImage(context);
       if(error != CBOOT_NO_ERROR)
       {
          TRACE_ERROR("Failed to verify second stage bl integrity.\r\n");
          break;
-         //TODO: probably have a user definable callback function here
+         //TODO: implement a user definable callback function here
+         //TODO: recovery here
       }
 
+      // If all is well, jump to it
       jumpToSecondStageBl(context);
 
    } while(0);
 
+   // At this point, we have already branched to the 2nd stage bl
+   // This error code is useful for testing
    return error;
 
 }
 
 /**
- * @brief Calculate a CRC32 checksum over the memory slot containing the 2nd stage bootloader
+ * @brief Get the image index of the second stage bootloader
  * @param[in] context Pointer to Bootloader context
  * @return cboot_error_t
  **/
-cboot_error_t checkSecondStageBlIntegrity(BootContext *context) {
+cboot_error_t getSecondStageBlIndex(BootContext *context, uint8_t *index) {
    error_t error;
    cboot_error_t cerror;
-   uint32_t addr;
-   size_t length;
-   size_t n;
-
-   HashAlgo *crcAlgo;
-   Crc32Context crcContext;
-   uint8_t digest[CRC32_DIGEST_SIZE];
 
    const FlashDriver *driver;
-   ImageHeader *header;
-   uint8_t buffer[sizeof(ImageHeader)];
+   ImageHeader header;
 
-   TRACE_INFO("Verifying second stage bootloader...\r\n");
-   TRACE_INFO("ADDR=0x%" PRIxPTR "\r\n", context->address);
-
-   if(context->driver == NULL)
+   if(context == NULL || context->driver == NULL)
    {
       return CBOOT_ERROR_INVALID_PARAMETERS;
    }
 
+   TRACE_INFO("Reading second stage bootloader header...\r\n");
+   TRACE_INFO("ADDR=0x%" PRIx32 "\r\n", context->bl_address);
+
    driver = context->driver;
 
    // Read slot data
-   error = driver->read(context->address, buffer, sizeof(buffer));
+   error = driver->read(context->bl_address, (uint8_t *)&header, sizeof(header));
    // Is any error?
    if(error)
       return CBOOT_ERROR_FAILURE;
 
-   // Point to internal image header
-   header = (ImageHeader *) buffer;
-
    // Check internal image header
-   cerror = imageCheckHeader(header);
+   cerror = imageCheckHeader(&header);
    // Is any error?
    if(cerror)
    {
@@ -132,60 +162,8 @@ cboot_error_t checkSecondStageBlIntegrity(BootContext *context) {
       return cerror;
    }
 
-   // Discard internal image header
-   addr = context->address + sizeof(ImageHeader);
-
-   // Save internal image data size
-   length = header->dataSize;
-
-   // Point to the CRC32 algorithm
-   crcAlgo = (HashAlgo *) CRC32_HASH_ALGO;
-   // Initialize CRC algorithm
-   crcAlgo->init(&crcContext);
-   // Start image check computation with image header crc
-   crcAlgo->update(&crcContext, (uint8_t *) &header->headCrc, CRC32_DIGEST_SIZE);
-
-   // Process image binary data
-   while(length > 0)
-   {
-      // Prevent read operation to overflow buffer size
-      n = MIN(sizeof(buffer), length);
-
-      // Read image binary data
-      error = driver->read(addr, buffer, n);
-      // Is any error?
-      if(error)
-         return CBOOT_ERROR_FAILURE;
-
-      // Update image binary data crc computation
-      crcAlgo->update(&crcContext, buffer, n);
-
-      // Increment external flash memory word address
-      addr += n;
-      // Remaining bytes to be read
-      length -= n;
-   }
-
-   // Finalize image binary data crc computation
-   crcAlgo->final(&crcContext, digest);
-
-   // Read given image binary crc
-   error = driver->read(addr, buffer, CRC32_DIGEST_SIZE);
-   // Is any error?
-   if(error)
-      return CBOOT_ERROR_FAILURE;
-
-   // Compare given against computed image binary crc
-   if(memcmp(buffer, digest, CRC32_DIGEST_SIZE) != 0)
-   {
-      // Debug message
-      TRACE_ERROR("Image binary data is not valid!\r\n");
-      TRACE_DEBUG("Computed check CRC: ");
-      TRACE_DEBUG_ARRAY("", digest, CRC32_DIGEST_SIZE);
-      TRACE_DEBUG("Given Check CRC: ");
-      TRACE_DEBUG_ARRAY("", buffer, CRC32_DIGEST_SIZE);
-      return CBOOT_ERROR_FIRMWARE_CORRUPTED;
-   }
+   if(index != NULL)
+      *index = header.imgIndex;
 
    return CBOOT_NO_ERROR;
 }
@@ -201,7 +179,7 @@ void jumpToSecondStageBl(BootContext *context) {
    uint32_t mcuVtorOffset = mcuGetVtorOffset();
 
    // Jump to application at given address
-   mcuJumpToApplication(context->address + context->offset + mcuVtorOffset);
+   mcuJumpToApplication(context->bl_address + context->offset + mcuVtorOffset);
 
 }
 
@@ -209,45 +187,52 @@ void jumpToSecondStageBl(BootContext *context) {
  * @brief Iterates over the available download slots
  * @param[in] context Pointer to Bootloader context
  * @return bool_t TRUE or FALSE based on the presence of a bootloader update
- **/
-bool_t checkForSecondStageBlUpdate(BootContext *context) {
+ * **/
+cboot_error_t checkForSecondStageBlUpdate(BootContext *context, uint8_t currentIndex, bool_t *updateFound) {
    error_t error;
    cboot_error_t cerror;
-   ImageHeader *header;
-   uint8_t buffer[sizeof(ImageHeader)];
+   ImageHeader header;
+   *updateFound = FALSE;
+   uint8_t bestIndex = currentIndex;
+
+   if(context == NULL || context->driver == NULL || updateFound == NULL)
+      return CBOOT_ERROR_FAILURE;
 
    TRACE_INFO("Checking for second stage bl update...\r\n");
    for(size_t i = 0; i < context->slot_count; i++)
    {
       TRACE_INFO("Checking slot 0x%" PRIxPTR "\r\n", (uintptr_t)context->slots[i]);
+
       // Read the header and determine if it's a bootloader update
-      error = context->driver->read(context->slots[i], buffer, sizeof(ImageHeader));
+      error = context->driver->read(context->slots[i], (uint8_t *)&header, sizeof(ImageHeader));
       // Is any error?
       if(error)
          return CBOOT_ERROR_FAILURE;
 
-      // Point to internal image header
-      header = (ImageHeader *) buffer;
-
       // Check internal image header
-      cerror = imageCheckHeader(header);
+      cerror = imageCheckHeader(&header);
       // Is any error?
       if(cerror)
       {
          // Debug message
          TRACE_ERROR("Image header is not valid or alternatively, no bootloader update is present.\r\n");
-         return FALSE;
+         continue;
       }
 
-      if(header->imgType == IMAGE_TYPE_BOOT)
+      if(header.imgType == IMAGE_TYPE_BOOT && header.imgIndex > bestIndex)
       {
-         TRACE_INFO("Second stage bl update found.\r\n");
+         TRACE_INFO("Newer second stage bl found in slot %d (index %d).\r\n", i, header.imgIndex);
+         bestIndex = header.imgIndex;
          context->update_address = context->slots[i];
-         return TRUE;
+         *updateFound = TRUE;
       }
-
+      else
+      {
+         TRACE_INFO("No second stage bl update found.\r\n");
+      }
    }
-   return FALSE;
+
+   return CBOOT_NO_ERROR;
 }
 
 /**
@@ -258,14 +243,14 @@ bool_t checkForSecondStageBlUpdate(BootContext *context) {
 cboot_error_t updateSecondStageBl(BootContext *context) {
 
    error_t error;
-   size_t n;
+   size_t n = 0;
    size_t imgAppSize;
    uint32_t readAddr;
    uint32_t writeAddr;
    ImageHeader *header;
    Crc32Context integrityContext;
    const HashAlgo *integrityAlgo;
-   FlashDriver *internalDriver;
+   const FlashDriver *internalDriver;
    const FlashInfo *internalDriverInfo;
    uint8_t buffer[512];
 
@@ -277,23 +262,26 @@ cboot_error_t updateSecondStageBl(BootContext *context) {
    // Prepare an update process
    TRACE_INFO("Updating second stage bl...\r\n");
 
-   // Get slot start address
+   // Get the slot start address
    readAddr = context->update_address;
-   // Get internal stlot address
-   writeAddr = context->address;
+   // Get the internal slot address
+   writeAddr = context->bl_address;
 
    // Select CRC32 integrity algo
    integrityAlgo = CRC32_HASH_ALGO;
 
    // Point to the internal memory flash driver
-   internalDriver = (FlashDriver *)context->driver;
+   internalDriver = context->driver;
+   if(internalDriver == NULL)
+      return CBOOT_ERROR_FAILURE;
+
    // Get internal driver information
    error = internalDriver->getInfo(&internalDriverInfo);
    if(error)
       return CBOOT_ERROR_FAILURE;
 
    ////////////////////////////////////////////////////////////////////////////
-   // Read header of the image containing the new application firmware
+   // Read the header of the image containing the new application firmware
    // Read update image slot for primary (internal) memory slot
    error = internalDriver->read(readAddr, buffer, sizeof(ImageHeader));
    // Is any error?
@@ -303,19 +291,29 @@ cboot_error_t updateSecondStageBl(BootContext *context) {
    // Point to image header
    header = (ImageHeader *)buffer;
 
-   // Write new image header into primary (internal) memory slot
+   // Save image application data size
+   imgAppSize = header->dataSize;
+
+   // Ensure the target does not overlap with the first stage BL
+   uint32_t writeEnd = writeAddr + sizeof(ImageHeader) + imgAppSize;
+   uint32_t selfEnd  = context->self_address + context->self_size;
+
+   if(writeAddr < selfEnd && writeEnd > context->self_address)
+   {
+      TRACE_ERROR("Write target overlaps with first stage BL. Aborting.\r\n");
+      return CBOOT_ERROR_FAILURE;
+   }
+
+   // Write a new image header into the primary (internal) memory slot
    error = internalDriver->write(writeAddr, (uint8_t *)header, sizeof(ImageHeader));
    // Is any error?
    if(error)
       return CBOOT_ERROR_FAILURE;
 
-   // Save image application data size
-   imgAppSize = header->dataSize;
-
    // Initialize CRC32 integrity algo context
    integrityAlgo->init(&integrityContext);
 
-   // Start image check crc computation with image header
+   // Start image check crc computation with the image header
    integrityAlgo->update(&integrityContext, (uint8_t *)&header->headCrc, CRC32_DIGEST_SIZE);
 
    // Update write address
@@ -332,7 +330,7 @@ cboot_error_t updateSecondStageBl(BootContext *context) {
    while(imgAppSize > 0)
    {
       n = MIN(sizeof(buffer), imgAppSize);
-      // Read update image data from primary (internal) memory slot
+      // Read update image data from the primary (internal) memory slot
       error = internalDriver->read(readAddr, buffer, n);
       // Is any error?
       if(error)
@@ -341,7 +339,7 @@ cboot_error_t updateSecondStageBl(BootContext *context) {
       // Update crc computation
       integrityAlgo->update(&integrityContext, buffer, n);
 
-      // Avoid to write less that internal flash minimum write size
+      // Avoid writing less that internal flash minimum write size
       if((n % internalDriverInfo->writeSize) == 0)
       {
          // Write image application data in primary (internal) memory slot
@@ -356,7 +354,6 @@ cboot_error_t updateSecondStageBl(BootContext *context) {
          // Just for sanity
       }
 
-      // writeAddr += n;
       readAddr += n;
       imgAppSize -= n;
    }
@@ -378,7 +375,7 @@ cboot_error_t updateSecondStageBl(BootContext *context) {
    TRACE_DEBUG("New image application CRC:\r\n");
    TRACE_DEBUG_ARRAY("CRC RAW: ", buffer + n, integrityAlgo->digestSize);
 
-   // Write computed image check data in primary (internal) memory slot
+   // Write computed image check data in the primary (internal) memory slot
    error = internalDriver->write(writeAddr, buffer, n + integrityAlgo->digestSize);
    // Is any error?
    if(error)
@@ -391,6 +388,8 @@ cboot_error_t updateSecondStageBl(BootContext *context) {
    // Is any error?
    if(error)
       return CBOOT_ERROR_FAILURE;
+
+   TRACE_INFO("Second stage bl update complete.\r\n");
 
    // Successful process
    return CBOOT_NO_ERROR;

@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 // Switch to the appropriate trace level
@@ -57,8 +57,13 @@ static cboot_error_t handleIdleState(BootContext *context);
 static cboot_error_t handleRunAppState(BootContext *context);
 static cboot_error_t handleUpdateAppState(BootContext *context);
 
+static void handleImageCheckError(BootContext *context, cboot_error_t cerror);
+static bool_t isValidPskSize(size_t size);
+
 #if (BOOT_FALLBACK_SUPPORT == ENABLED)
 static cboot_error_t handleFallbackAppState(BootContext *context);
+static cboot_error_t checkAutoFallbackTrigger(BootContext *context);
+static cboot_error_t checkManualFallbackTrigger(BootContext *context);
 #endif
 /**
  * @brief Initialize bootloader settings with default values
@@ -67,16 +72,11 @@ static cboot_error_t handleFallbackAppState(BootContext *context);
 
 void bootGetDefaultSettings(BootSettings *settings)
 {
+   if(settings == NULL)
+      return;
+
    // Clear bootloader user settings structure
    memset(settings, 0x00, sizeof(BootSettings));
-
-#if (BOOT_FALLBACK_SUPPORT == ENABLED)
-#if (BOOT_EXT_MEM_ENCRYPTION_SUPPORT == ENABLED)
-   // Secondary flash cipher key settings
-   settings->psk = NULL;
-   settings->pskSize = 0;
-#endif
-#endif
 }
 
 /**
@@ -113,18 +113,17 @@ cboot_error_t bootInit(BootContext *context, BootSettings *settings)
    mailBoxInit();
 #endif
 
-#if EXTERNAL_MEMORY_SUPPORT == ENABLED
+#if (EXTERNAL_MEMORY_SUPPORT == ENABLED)
    // Initialize a secondary (external) flash driver and slots
    cerror = bootInitSecondaryMem(context, settings);
    // Is any error?
    if(cerror)
       return cerror;
-#endif
 
-#if (BOOT_FALLBACK_SUPPORT == ENABLED && BOOT_EXT_MEM_ENCRYPTION_SUPPORT == ENABLED)
+#if (BOOT_EXT_MEM_ENCRYPTION_SUPPORT == ENABLED)
    // Check the cipher key used to decode data in secondary flash (external
    // memory)
-   if(settings->psk == NULL || (settings->pskSize > sizeof(context->psk)))
+   if(settings->psk == NULL || settings->pskSize == 0 || (settings->pskSize > sizeof(context->psk)))
    {
       return CBOOT_ERROR_INVALID_PARAMETERS;
    }
@@ -135,6 +134,7 @@ cboot_error_t bootInit(BootContext *context, BootSettings *settings)
       memcpy(context->psk, settings->psk, settings->pskSize);
       context->pskSize = settings->pskSize;
    }
+#endif
 #endif
 
 #if (BOOT_FALLBACK_SUPPORT == ENABLED && BOOT_FALLBACK_MANUAL_MODE == ENABLED)
@@ -162,15 +162,20 @@ cboot_error_t bootFsm(BootContext *context)
 {
    cboot_error_t cerror = CBOOT_NO_ERROR;
 
+#if (BOOT_FALLBACK_SUPPORT == ENABLED)
    // Handle fallback trigger if supported
+   // TODO: consider whether this should only run in IDLE or guarded with a flag to avoid retriggers
    cerror = handleFallbackTriggers(context);
    if(cerror != CBOOT_NO_ERROR)
    {
       return cerror;
    }
+#endif
 
    do
    {
+      // TODO: If a handler sets busy = TRUE and returns CBOOT_NO_ERROR, the next iteration starts with a clean cerror.
+      // But if a handler sets busy = TRUE and returns an error, the loop continues
       context->busy = FALSE;
 
       switch(context->state)
@@ -195,6 +200,7 @@ cboot_error_t bootFsm(BootContext *context)
 
       case BOOT_STATE_ERROR:
          bootHandleGenericError();
+         cerror = CBOOT_ERROR_FAILURE;
          break;
 
       default:
@@ -216,65 +222,95 @@ cboot_error_t bootFsm(BootContext *context)
 cboot_error_t bootGetCipherKey(BootContext *context)
 {
 #if ((BOOT_FALLBACK_SUPPORT == DISABLED) && (BOOT_EXT_MEM_ENCRYPTION_SUPPORT == ENABLED))
-   cboot_error_t cerror;
-   uint8_t psk[BOOT_MBX_PSK_MAX_SIZE];
-   size_t pskSize = 0;
-
-   // Initialize status code
-   cerror = CBOOT_NO_ERROR;
 
    // Debug message
    TRACE_INFO("Retrieving cipher key...\r\n");
 
-   // Begin of handling block
-   do
+   bool_t hasMailboxKey = (context->settings.psk == NULL && context->settings.pskSize == 0);
+   bool_t hasSettingsKey = (context->settings.psk != NULL && context->settings.pskSize != 0);
+
+   if(!hasMailboxKey && !hasSettingsKey)
    {
-      if(context->settings.psk == NULL && context->settings.pskSize == 0)
+      TRACE_ERROR("Retrieving cipher key failed!\r\n");
+      return CBOOT_ERROR_INVALID_PARAMETERS;
+   }
+
+   // Begin of handling block
+   if(hasMailboxKey)
+   {
+      uint8_t psk[BOOT_MBX_PSK_MAX_SIZE] = {0};
+      size_t pskSize = 0;
+
+      // Get message from shared SRAM (contains a PSK)
+      mailBoxGetPsk(psk, (uint32_t *)&pskSize);
+
+      // Check PSK used to decode data in secondary flash (external memory)
+      if(!isValidPskSize(pskSize))
       {
-         // Get message from shared SRAM (contains PSK key)
-         mailBoxGetPsk(psk, &pskSize);
-
-         // Check cipher key used to decode data in secondary flash (external
-         // memory)
-         if(pskSize > sizeof(context->psk) || pskSize == 0)
-         {
-            TRACE_ERROR("Retrieving cipher key failed!\r\n");
-            break;     // TODO: in addition to breaking, we should not attempt to
-                       // decrypt with an invalid key
-         }
-
-         // Store cipher key used to decode data in secondary flash (external
-         // memory)
-         memcpy(context->psk, psk, pskSize);
-         context->pskSize = pskSize;
+         TRACE_ERROR("Retrieving cipher key failed!\r\n");
+         memset(psk, 0, sizeof(psk));
+         return CBOOT_ERROR_INVALID_PARAMETERS;
       }
-      else
+
+      // Store cipher key used to decode data in secondary flash (external
+      // memory)
+      memcpy(context->psk, psk, pskSize);
+      context->pskSize = pskSize;
+      // Make sure to reset the message from shared RAM memory
+      mailBoxClearPsk();
+      memset(psk, 0, sizeof(psk));
+   }
+   else
+   {
+      // Get PSK from the settings
+      if(isValidPskSize(context->settings.pskSize))
       {
-         // Get PSK from the settings
          memcpy(context->psk, context->settings.psk, context->settings.pskSize);
          context->pskSize = context->settings.pskSize;
       }
+      else
+      {
+         TRACE_ERROR("Retrieving cipher key failed!\r\n");
+         return CBOOT_ERROR_INVALID_PARAMETERS;
+      }
+   }
 
-   } while(0);
+   return CBOOT_NO_ERROR;
 
-   // Make sure to reset message from shared RAM memory
-   mailBoxClearPsk();
-
-   // Return status code
-   return cerror;
 #else
    // Return error code
+   (void)context;
+   TRACE_ERROR("bootGetCipherKey called in unsupported configuration.\r\n");
    return CBOOT_ERROR_NOT_IMPLEMENTED;
 #endif
+}
+
+static bool_t isValidPskSize(size_t size) {
+   return (size == 16 || size == 32);
 }
 
 /**
  * @brief Jump to the application binary inside the current image in internal
  * flash.
- * @input[in] context Pointer to the bootloader context
+ * @param[in] context Pointer to the bootloader context
  * @return Status code
  **/
+//TODO: should use a consistent approach using context->selectedSlot instead of directly
+/*
+ * e.g.,
+ * cboot_error_t bootJumpToApp(BootContext *context)
+   {
+   if (context == NULL)
+      return CBOOT_ERROR_INVALID_PARAMETERS;
 
+   if (context->memoriesCount == 0 || context->memories[0].driver == NULL)
+      return CBOOT_ERROR_INVALID_PARAMETERS;
+
+   mcuJumpToApplication(context->selectedSlot.addr + mcuGetVtorOffset());
+
+   //Never reached
+   return CBOOT_NO_ERROR;
+   }*/
 cboot_error_t bootJumpToApp(BootContext *context)
 {
    error_t error;
@@ -288,6 +324,11 @@ cboot_error_t bootJumpToApp(BootContext *context)
 
    // Get primary flash memory information
    driver = (FlashDriver *)context->memories[0].driver;
+
+   //TODO: also add a nb memories check here
+   if(context->memories[0].driver == NULL)
+      return CBOOT_ERROR_INVALID_PARAMETERS;
+
    error = driver->getInfo(&info);
    // Is any error?
    if(error)
@@ -296,10 +337,10 @@ cboot_error_t bootJumpToApp(BootContext *context)
    // Get MCU VTOR offset
    mcuVtorOffset = mcuGetVtorOffset();
 
-   // Jump to application at given address
+   // Jump to the application at the given address
    mcuJumpToApplication(info->flashAddr + BOOT_OFFSET + mcuVtorOffset);
 
-   // Successful process
+   // Never reached
    return CBOOT_NO_ERROR;
 }
 
@@ -307,9 +348,48 @@ static cboot_error_t handleFallbackTriggers(BootContext *context)
 {
    cboot_error_t cerror = CBOOT_NO_ERROR;
 
-#if (BOOT_FALLBACK_SUPPORT == ENABLED)
-
 #if (BOOT_FALLBACK_MANUAL_MODE == ENABLED)
+   cerror = checkManualFallbackTrigger(context);
+   if(cerror != CBOOT_NO_ERROR)
+      return cerror;
+#endif
+
+#if (BOOT_FALLBACK_AUTO_MODE == ENABLED)
+   cerror = checkAutoFallbackTrigger(context);
+   if(cerror != CBOOT_NO_ERROR)
+      return cerror;
+#endif
+
+   return cerror;
+}
+
+static cboot_error_t checkAutoFallbackTrigger(BootContext *context) {
+
+#if (BOOT_COUNTER_SUPPORT == ENABLED)
+   if(mailBoxGetBootCounter() >= BOOT_COUNTER_MAX_ATTEMPTS)
+   {
+      TRACE_INFO("Max boot attempts reached. Initiating fallback...\r\n");
+      mailBoxClearBootCounter();
+      bootChangeState(context, BOOT_STATE_FALLBACK_APP);
+   }
+#endif
+
+#if (BOOT_FLAG_SUPPORT == ENABLED)
+   //TODO: verify this is initialized to 0 on a clean boot.
+   if((!mailBoxIsUpdateConfirmed() && mailBoxGetBootCounter() != 0) ||
+      mailBoxIsFallbackRequested())
+   {
+      TRACE_INFO("Fallback due to unconfirmed update or explicit request...\r\n");
+      mailBoxClearBootCounter();
+      bootChangeState(context, BOOT_STATE_FALLBACK_APP);
+   }
+#endif
+
+   return CBOOT_NO_ERROR;
+}
+
+static cboot_error_t checkManualFallbackTrigger(BootContext *context) {
+   cboot_error_t cerror;
    TriggerStatus trigStatus;
    cerror = fallbackTriggerGetStatus(&trigStatus);
    if(cerror)
@@ -325,34 +405,10 @@ static cboot_error_t handleFallbackTriggers(BootContext *context)
       mailBoxSetFallbackRequested(FALSE);
       bootChangeState(context, BOOT_STATE_FALLBACK_APP);
    }
-#endif
 
-#if (BOOT_FALLBACK_AUTO_MODE == ENABLED)
-
-#if (BOOT_COUNTER_SUPPORT == ENABLED)
-   if(mailBoxGetBootCounter() >= BOOT_COUNTER_MAX_ATTEMPTS)
-   {
-      TRACE_INFO("Max boot attempts reached. Initiating fallback...\r\n");
-      mailBoxClearBootCounter();
-      bootChangeState(context, BOOT_STATE_FALLBACK_APP);
-   }
-#endif
-
-#if (BOOT_FLAG_SUPPORT == ENABLED)
-   if((!mailBoxIsUpdateConfirmed() && mailBoxGetBootCounter() != 0) ||
-      mailBoxIsFallbackRequested())
-   {
-      TRACE_INFO("Fallback due to unconfirmed update or explicit request...\r\n");
-      mailBoxClearBootCounter();
-      bootChangeState(context, BOOT_STATE_FALLBACK_APP);
-   }
-#endif
-
-#endif
-#endif
-
-   return cerror;
+   return CBOOT_NO_ERROR;
 }
+
 
 static cboot_error_t handleIdleState(BootContext *context)
 {
@@ -364,9 +420,14 @@ static cboot_error_t handleIdleState(BootContext *context)
    {
 #if BOOT_FALLBACK_SUPPORT == ENABLED
       bootChangeState(context, BOOT_STATE_FALLBACK_APP);
+#else
+      bootChangeState(context, BOOT_STATE_ERROR);
+      TRACE_ERROR("Firmware corrupted, no fallback available.\r\n");
 #endif
+      return cerror;
    }
-   else if(cerror || context->selectedSlot.memParent == NULL)
+
+   if(cerror || context->selectedSlot.memParent == NULL)
    {
       TRACE_ERROR("No valid update image found.\r\n");
       bootNoValidUpdatesHook();
@@ -377,6 +438,7 @@ static cboot_error_t handleIdleState(BootContext *context)
          (unsigned long)context->selectedSlot.addr, context->selectedSlot.size);
 
       uint8_t result;
+      //TODO: hardcoded without bounds check
       memoryCompareSlot(&context->selectedSlot, &context->memories[0].slots[0], &result);
       bootChangeState(context, result ? BOOT_STATE_UPDATE_APP : BOOT_STATE_RUN_APP);
    }
@@ -388,6 +450,13 @@ static cboot_error_t handleRunAppState(BootContext *context)
 {
    cboot_error_t cerror;
 
+   //TODO: add bounds checking and NULL check for the fields
+   //TODO: make the slot selection policy more clear
+   //TODO: make it dynamic to handle more advanced use cases (option)
+   /*
+    * e.g., cerror = bootSelectActiveSlot(context, &context->selectedSlot);
+          if (cerror) return cerror;
+    */
    context->selectedSlot = context->memories[0].slots[0];
 
    TRACE_INFO("No update available. Checking current application...\r\n");
@@ -395,62 +464,66 @@ static cboot_error_t handleRunAppState(BootContext *context)
    cerror = bootCheckImage(context, &context->selectedSlot);
    if(cerror)
    {
-#if BOOT_FALLBACK_SUPPORT == ENABLED
-      if(cerror == CBOOT_ERROR_FIRMWARE_CORRUPTED)
-         bootChangeState(context, BOOT_STATE_FALLBACK_APP);
-#else
-      bootChangeState(context, BOOT_STATE_ERROR);
+      handleImageCheckError(context, cerror);
+      return cerror;
+   }
+#if (BOOT_RUNTIME_INTEGRITY_CHECK_SUPPORT == ENABLED || BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT == ENABLED)
+   cerror = bootCheckRuntimeImage(context, &context->selectedSlot);
+   if(cerror)
+   {
+      handleImageCheckError(context, cerror);
+      return cerror;
+   }
 #endif
+   cerror = bootCheckSlotAppResetVector(&context->selectedSlot);
+   if(cerror)
+   {
+      bootChangeState(context, BOOT_STATE_ERROR);
       return cerror;
    }
 
-   cerror = bootCheckSlotAppResetVector(&context->selectedSlot);
-   if(!cerror)
-   {
-      TRACE_INFO("Application image is valid. Booting...\r\n");
+   TRACE_INFO("Application image is valid. Booting...\r\n");
 
 #if (BOOT_FALLBACK_SUPPORT == ENABLED && BOOT_FALLBACK_AUTO_MODE == ENABLED)
-      mailBoxIncrementBootCounter();
+   mailBoxIncrementBootCounter();
 #endif
 
-      uint32_t appStartAddr = context->selectedSlot.addr + mcuGetVtorOffset();
 #if (BOOT_FALLBACK_SUPPORT == ENABLED)
-      if(mailBoxIsFallbackPerformed())
-      {
-         TRACE_INFO("Fallback has been performed. Booting from previous version...\r\n");
-         bootFallbackPerformedHook();
-      }
-#endif
-      mcuJumpToApplication(appStartAddr);
-   }
-   else
+   if(mailBoxIsFallbackPerformed())
    {
-      bootChangeState(context, BOOT_STATE_ERROR);
+      TRACE_INFO("Fallback has been performed. Booting from previous version...\r\n");
+      bootFallbackPerformedHook();
    }
+#endif
+
+   uint32_t appStartAddr = context->selectedSlot.addr + mcuGetVtorOffset();
+   mcuJumpToApplication(appStartAddr);
 
    return cerror;
 }
 
 static cboot_error_t handleUpdateAppState(BootContext *context)
 {
+   cboot_error_t cerror;
    TRACE_INFO("Checking update application image...\r\n");
 
-#if (BOOT_FALLBACK_SUPPORT == DISABLED && BOOT_EXT_MEM_ENCRYPTION_SUPPORT == ENABLED)
-   cboot_error_t cerror = bootGetCipherKey(context);
+#if (BOOT_EXT_MEM_ENCRYPTION_SUPPORT == ENABLED)
+   cerror = bootGetCipherKey(context);
    if(cerror)
    {
       TRACE_ERROR("Failed to retrieve cipher key.\r\n");
       bootChangeState(context, BOOT_STATE_RUN_APP);
       return CBOOT_NO_ERROR;
    }
-#else
-   cboot_error_t cerror = bootCheckImage(context, &context->selectedSlot);
 #endif
 
+   cerror = bootCheckImage(context, &context->selectedSlot);
    if(cerror)
    {
       bootChangeState(context, BOOT_STATE_RUN_APP);
-      return CBOOT_NO_ERROR;
+      //TODO: Consider returning the actual error and letting the FSM decide, or at minimum logging it before discarding
+      TRACE_INFO("Update image check failed (0x%X). Falling back to run app.\r\n", cerror);
+      return CBOOT_NO_ERROR; //TODO: intentional, document why
    }
 
    TRACE_INFO("Starting update procedure...\r\n");
@@ -458,6 +531,8 @@ static cboot_error_t handleUpdateAppState(BootContext *context)
 
    if(cerror)
    {
+      TRACE_INFO("Update app failed (0x%X).\r\n", cerror);
+      //TODO: need a hook here and possibliy more information and a safe way out to boot (or fallback)
       bootChangeState(context, BOOT_STATE_ERROR);
    }
    else
@@ -471,7 +546,7 @@ static cboot_error_t handleUpdateAppState(BootContext *context)
       mcuSystemReset();
    }
 
-   return cerror;
+   return cerror; // unreachable
 }
 
 #if (BOOT_FALLBACK_SUPPORT == ENABLED)
@@ -497,6 +572,16 @@ static cboot_error_t handleFallbackAppState(BootContext *context)
    return cerror;
 }
 #endif
+
+static void handleImageCheckError(BootContext *context, cboot_error_t cerror)
+{
+#if (BOOT_FALLBACK_SUPPORT == ENABLED)
+   if(cerror == CBOOT_ERROR_FIRMWARE_CORRUPTED)
+      bootChangeState(context, BOOT_STATE_FALLBACK_APP);
+#else
+   bootChangeState(context, BOOT_STATE_ERROR);
+#endif
+}
 
 //////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////

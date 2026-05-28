@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 // Switch to the appropriate trace level
@@ -213,7 +213,6 @@ cboot_error_t updateInit(UpdateContext *context, UpdateSettings *settings)
    if(cerror)
       return CBOOT_ERROR_FAILURE;
 
-   // context->imageOutput.imgIdx = newImgIdx;
    context->imageProcessCtx.outputImage.newImageIdx = newImgIdx;
 #endif
 
@@ -631,6 +630,8 @@ cboot_error_t updateCalculateOutputImageIdx(UpdateContext *context, uint16_t *im
    if(context == NULL || imgIdx == NULL)
       return CBOOT_ERROR_INVALID_PARAMETERS;
 
+   memset(&imgHeader, 0xFF, sizeof(ImageHeader));
+
    // Get primary memory slot that holds app
    cerror = memoryGetSlotByCType(&context->memories[0], SLOT_CONTENT_APP, &appSlot);
    // Is any error?
@@ -641,8 +642,16 @@ cboot_error_t updateCalculateOutputImageIdx(UpdateContext *context, uint16_t *im
    cerror = updateGetImageHeaderFromSlot(appSlot, &imgHeader);
 
 #if (UPDATE_STANDALONE_BOOT_MODE == ENABLED)
-   if(cerror == CBOOT_ERROR_SLOT_EMPTY)
-      cerror = CBOOT_NO_ERROR;
+   if(cerror != CBOOT_NO_ERROR)
+   {
+      uint8_t allFF[sizeof(ImageHeader)];
+      memset(allFF, 0xFF, sizeof(ImageHeader));
+
+      if(memcmp(&imgHeader, allFF, sizeof(ImageHeader)) == 0)
+      {
+         cerror = CBOOT_NO_ERROR;
+      }
+   }
 #endif
 
    // Is any error?

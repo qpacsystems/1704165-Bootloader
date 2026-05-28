@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 #ifndef _MEMORY_H
@@ -39,10 +39,6 @@
 
 #include <stdint.h>
 #include <stdlib.h>
-
-#ifdef SIMULATOR
-#include "test_common.h"
-#endif
 
 #include "core/cboot_error.h"
 #include "error.h"
@@ -278,9 +274,14 @@ cboot_error_t memoryEraseSlot(Slot *slot, uint32_t offset, size_t length);
 cboot_error_t memoryCopySlot(Slot *src, Slot *dst, size_t bytesNumber);
 
 /**
- * @brief Compare two given slots
+ * @brief Compare two given slots metadata
  **/
 void memoryCompareSlot(Slot *src, Slot *dst, uint8_t *result);
+
+/**
+ * @brief Compare two given slots content
+ **/
+cboot_error_t memoryCompareSlotContent(Slot *src, Slot *dst, uint8_t *result);
 
 /**
  * @brief Memory cleanup function

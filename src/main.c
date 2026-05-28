@@ -3,7 +3,7 @@
  * @brief Standalone bootloader entry point
  *
  * Bare-metal (no RTOS). Initializes minimal hardware, configures
- * CycloneBOOT dual-bank memory layout, and runs the boot FSM.
+ * CycloneBOOT v2.6.2 dual-bank memory layout, and runs the boot FSM.
  *
  * @section License
  * SPDX-License-Identifier: GPL-2.0-or-later
@@ -19,10 +19,11 @@
 
 // Forward declarations
 static void SystemClock_Config(void);
-static void bootConfigureMemory(void);
+static void bootConfigureMemory(BootSettings *settings);
 
-// CycloneBOOT boot context (defined in boot.h)
-extern BootContext bootContext;
+// CycloneBOOT boot context and settings
+static BootContext bootContext;
+static BootSettings bootSettings;
 
 int main(void)
 {
@@ -35,11 +36,12 @@ int main(void)
     // Enable ICACHE for faster flash reads
     HAL_ICACHE_Enable();
 
-    // Configure CycloneBOOT memory layout
-    bootConfigureMemory();
+    // Get default settings, then configure memory layout
+    bootGetDefaultSettings(&bootSettings);
+    bootConfigureMemory(&bootSettings);
 
-    // Initialize the boot FSM
-    bootInit(&bootContext);
+    // Initialize the boot FSM (v2.6.2 API: context + settings)
+    bootInit(&bootContext, &bootSettings);
 
     // Run boot state machine in a loop
     // bootFsm() will eventually jump to the application or
@@ -55,14 +57,8 @@ int main(void)
 /**
  * @brief Configure dual-bank memory layout for CycloneBOOT
  */
-static void bootConfigureMemory(void)
+static void bootConfigureMemory(BootSettings *settings)
 {
-    BootSettings *settings = &bootContext.settings;
-
-    // Verification: CRC32 integrity check
-    settings->imageOutCrypto.verifySettings.verifyMethod = VERIFY_METHOD_INTEGRITY;
-    settings->imageOutCrypto.verifySettings.integrityAlgo = CRC32_HASH_ALGO;
-
     // Primary memory: internal flash
     Memory *primaryMem = &settings->memories[0];
     primaryMem->memoryType = MEMORY_TYPE_FLASH;
@@ -114,7 +110,6 @@ static void SystemClock_Config(void)
     RCC_OscInitStruct.PLL.PLLVCOSEL  = RCC_PLL1_VCORANGE_WIDE;
 
     if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-        // Clock config failed — hang
         while (1);
     }
 
@@ -138,4 +133,49 @@ static void SystemClock_Config(void)
 void SysTick_Handler(void)
 {
     HAL_IncTick();
+}
+
+//-----------------------------------------------------------------------------
+// CycloneBOOT v2.6.2 weak hook implementations
+//-----------------------------------------------------------------------------
+
+__attribute__((weak)) void bootInitHook(void)
+{
+    bootHookInitLed();
+}
+
+__attribute__((weak)) void bootIdleStateHook(void)
+{
+    bootHookToggleLed();
+}
+
+__attribute__((weak)) void bootNoValidUpdatesHook(void)
+{
+    // No valid image found — blink fast to indicate error
+    bootHookFatalError();
+}
+
+__attribute__((weak)) void bootJumpingToApplicationHook(void)
+{
+    // About to jump — turn LED off
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+}
+
+__attribute__((weak)) void bootFallbackPerformedHook(void)
+{
+    // Fallback occurred — brief double-blink
+    for (int i = 0; i < 4; i++) {
+        bootHookToggleLed();
+        for (volatile uint32_t d = 0; d < 1000000; d++);
+    }
+}
+
+__attribute__((weak)) void bootHandleFallbackError(void)
+{
+    bootHookFatalError();
+}
+
+__attribute__((weak)) void bootHandleGenericError(void)
+{
+    bootHookFatalError();
 }

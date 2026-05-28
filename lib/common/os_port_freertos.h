@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  * 
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
@@ -24,7 +24,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 #ifndef _OS_PORT_FREERTOS_H
@@ -92,7 +92,9 @@
 
 //Interrupt service routine epilogue
 #ifndef osExitIsr
-   #if defined(__XTENSA__)
+   #if defined(__ADSPSC8xx__)
+      #define osExitIsr(flag) portYIELD_FROM_ISR(flag)
+   #elif defined(__XTENSA__)
       #define osExitIsr(flag) if(flag) portYIELD_FROM_ISR()
    #elif defined(portEXIT_SWITCHING_ISR)
       #define osExitIsr(flag) portEXIT_SWITCHING_ISR()

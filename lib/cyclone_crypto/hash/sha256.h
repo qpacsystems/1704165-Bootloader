@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneCRYPTO Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 #ifndef _SHA256_H
@@ -73,9 +73,13 @@ typedef struct
 } Sha256Context;
 
 
+#if (SHA256_SUPPORT == ENABLED)
+
 //SHA-256 related constants
 extern const uint8_t SHA256_OID[9];
 extern const HashAlgo sha256HashAlgo;
+
+#endif
 
 //SHA-256 related functions
 error_t sha256Compute(const void *data, size_t length, uint8_t *digest);

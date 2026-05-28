@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 #ifndef _BOOT_H
@@ -34,11 +34,10 @@
 
 // Dependencies
 #include "boot_config.h"
-#include "cipher/aes.h"
-#include "cipher_modes/cbc.h"
 #include "core/cboot_error.h"
 #include "core/crypto.h"
 #include "core/flash.h"
+#include "core/verify.h"
 
 // default offset
 #ifndef BOOT_OFFSET
@@ -91,6 +90,67 @@
 #error BOOT_EXT_MEM_ENCRYPTION_SUPPORT parameter is not valid
 #endif
 
+// ------------------------------
+// Boot Runtime Integrity Check Config
+// ------------------------------
+
+// Default values
+#ifndef BOOT_RUNTIME_INTEGRITY_CHECK_SUPPORT
+#define BOOT_RUNTIME_INTEGRITY_CHECK_SUPPORT DISABLED
+#endif
+
+#ifndef BOOT_INTEGRITY_CHECK_ALGO
+#define BOOT_INTEGRITY_CHECK_ALGO CRC32_HASH_ALGO
+#endif
+
+// ------------------------------
+// Supported hash algorithms
+// ------------------------------
+#define HASH_ALGO_CRC32   CRC32_HASH_ALGO
+#define HASH_ALGO_SHA1    SHA1_HASH_ALGO
+#define HASH_ALGO_SHA224  SHA224_HASH_ALGO
+#define HASH_ALGO_SHA256  SHA256_HASH_ALGO
+#define HASH_ALGO_SHA384  SHA384_HASH_ALGO
+#define HASH_ALGO_SHA512  SHA512_HASH_ALGO
+
+// ------------------------------
+// Validation
+// ------------------------------
+#if (BOOT_RUNTIME_INTEGRITY_CHECK_SUPPORT != ENABLED) && (BOOT_RUNTIME_INTEGRITY_CHECK_SUPPORT != DISABLED)
+#error "BOOT_RUNTIME_INTEGRITY_CHECK_SUPPORT must be ENABLED or DISABLED"
+#endif
+
+// ------------------------------
+// Boot Runtime Signature Check Config
+// ------------------------------
+
+// Default values
+#ifndef BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT
+#define BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT DISABLED
+#endif
+
+// ------------------------------
+// Validation
+// ------------------------------
+#if (BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT == ENABLED)
+#if defined(BOOT_RUNTIME_SIGNATURE_ECDSA)
+/* ok */
+#elif defined(BOOT_RUNTIME_SIGNATURE_RSA)
+/* ok */
+#else
+  #error "Unknown signature algorithm macro enabled."
+#endif
+
+#if ((BOOT_RUNTIME_SIGNATURE_ECDSA == ENABLED) && (BOOT_RUNTIME_SIGNATURE_RSA == ENABLED))
+#error "BOOT_RUNTIME_SIGNATURE_ECDSA and BOOT_RUNTIME_SIGNATURE_RSA cannot be enabled at the same time"
+#endif
+
+#endif
+
+#if (BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT != ENABLED) && (BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT != DISABLED)
+#error "BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT must be ENABLED or DISABLED"
+#endif
+
 // C++ guard
 #ifdef __cplusplus
 extern "C"
@@ -121,7 +181,9 @@ typedef struct
    const char_t *psk;                            ///< Secondary flash slot cipher key
    size_t pskSize;                               ///< Secondary flash slot cipher key size
 #endif
-
+#if (BOOT_RUNTIME_SIGNATURE_CHECK_SUPPORT == ENABLED)
+   VerifySettings verifySettings;
+#endif
    Memory memories[NB_MEMORIES];
 } BootSettings;
 

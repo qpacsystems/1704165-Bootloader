@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 // Switch to the appropriate trace level
@@ -112,22 +112,22 @@ cboot_error_t fallbackTask(BootContext *context, Memory *memories)
          }
          else if(slotOneValid == 0)
          {
-            TRACE_INFO("Chosen Slot Two with Image Index: %d\r\n", fallbackSlotTwoHdr.imgIndex);
+            TRACE_INFO("Chosen Slot Two with Image Index: %ld\r\n", fallbackSlotTwoHdr.imgIndex);
             cerror = fallbackRestoreBackupSlot(context, fallbackSlotTwo);
          }
          else if(slotTwoValid == 0)
          {
-            TRACE_INFO("Chosen Slot One with Image Index: %d\r\n", fallbackSlotOneHdr.imgIndex);
+            TRACE_INFO("Chosen Slot One with Image Index: %ld\r\n", fallbackSlotOneHdr.imgIndex);
             cerror = fallbackRestoreBackupSlot(context, fallbackSlotOne);
          }
          else if(fallbackSlotOneHdr.imgIndex > fallbackSlotTwoHdr.imgIndex)
          {
-            TRACE_INFO("Chosen Slot One with Image Index: %d\r\n", fallbackSlotOneHdr.imgIndex);
+            TRACE_INFO("Chosen Slot One with Image Index: %ld\r\n", fallbackSlotOneHdr.imgIndex);
             cerror = fallbackRestoreBackupSlot(context, fallbackSlotOne);
          }
          else
          {
-            TRACE_INFO("Chosen Slot Two with Image Index: %d\r\n", fallbackSlotTwoHdr.imgIndex);
+            TRACE_INFO("Chosen Slot Two with Image Index: %ld\r\n", fallbackSlotTwoHdr.imgIndex);
             cerror = fallbackRestoreBackupSlot(context, fallbackSlotTwo);
          }
 

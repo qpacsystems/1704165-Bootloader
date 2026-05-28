@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 // Switch to the appropriate trace level
@@ -45,8 +45,6 @@
 #include "core/crc32.h"
 #include "debug.h"
 #include "update/update_misc.h"
-
-static bool_t isBufferEmpty(const uint8_t *buffer, size_t size);
 
 /**
  * @brief Initialize input (update) image settings.
@@ -276,7 +274,6 @@ cboot_error_t updateInitOutputImage(UpdateSettings *settings, UpdateContext *con
 
 cboot_error_t updateGetImageHeaderFromSlot(Slot *slot, ImageHeader *header)
 {
-   size_t i;
    cboot_error_t cerror;
    ImageHeader *imgHeader;
    uint8_t buffer[sizeof(ImageHeader)];
@@ -292,11 +289,6 @@ cboot_error_t updateGetImageHeaderFromSlot(Slot *slot, ImageHeader *header)
    if(cerror)
       return cerror;
 
-#if (UPDATE_STANDALONE_BOOT_MODE == ENABLED)
-   if(isBufferEmpty(buffer, sizeof(ImageHeader)))
-      return CBOOT_ERROR_SLOT_EMPTY;
-#endif
-
    // Get image header from above buffer
    cerror = imageGetHeader(buffer, sizeof(ImageHeader), &imgHeader);
    // Is any error?
@@ -308,24 +300,4 @@ cboot_error_t updateGetImageHeaderFromSlot(Slot *slot, ImageHeader *header)
 
    // Successful process
    return CBOOT_NO_ERROR;
-}
-
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-static bool_t isBufferEmpty(const uint8_t *buffer, size_t size) {
-   bool_t result = TRUE;
-
-   for(size_t i = 0; i < size; i++)
-   {
-      if(buffer[i] != 0xFF)
-      {
-         result = FALSE;
-         break;
-      }
-   }
-
-   return result;
 }

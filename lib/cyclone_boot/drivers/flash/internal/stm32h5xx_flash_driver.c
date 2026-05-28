@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 // Switch to the appropriate trace level
@@ -353,11 +353,13 @@ error_t stm32h5xxFlashDriverErase(uint32_t address, size_t length)
 {
    error_t error;
    uint32_t topAddress;
+
+#ifndef FLASH_DB_MODE
    int_t firstSectorNumber;
    uint8_t bankId;
-
    uint32_t sectorAddr;
    uint32_t sectorEndAddr;
+#endif
 
    error = NO_ERROR;
    // Pre-compute the top address
@@ -381,7 +383,7 @@ error_t stm32h5xxFlashDriverErase(uint32_t address, size_t length)
       return ERROR_INVALID_PARAMETER;
 #endif
 
-#if !defined(FLASH_DB_MODE)
+#ifndef FLASH_DB_MODE
    sectorEndAddr = address + length;
 
    do
@@ -849,12 +851,7 @@ error_t stm32h5xxFlashDriverEraseSector(uint32_t bankID, uint32_t firstSector, s
 
    // Check parameter validity
    if((firstSector >= STM32H5xx_FLASH_SECTOR_NUMBER) || (nbSectors == 0) ||
-      ((firstSector + nbSectors - 1) >= STM32H5xx_FLASH_SECTOR_NUMBER) ||
-#if defined(FLASH_SINGLE_BANK)
-      (bankID != STM32H5xx_FLASH_BANK1_ID))
-#else
-      !((bankID == STM32H5xx_FLASH_BANK1_ID) || (bankID == STM32H5xx_FLASH_BANK2_ID)))
-#endif
+      ((firstSector + nbSectors - 1) >= STM32H5xx_FLASH_SECTOR_NUMBER))
       return ERROR_INVALID_PARAMETER;
 
    // Debug message
@@ -893,8 +890,9 @@ error_t stm32h5xxFlashDriverEraseSector(uint32_t bankID, uint32_t firstSector, s
          // Debug message
          flashError = HAL_FLASH_GetError();
          TRACE_ERROR("Failed to erase flash sector(s) %lu, sector = 0x%08lx, "
-            "error = %d\r\n",
+            "error = %lu\r\n",
             firstSector, sectorError, flashError);
+         (void)flashError; // prevent unused-but-set warning
          break;
       }
    } while(0);
@@ -963,30 +961,7 @@ static inline uint32_t GetFlashSize(void)
 
    return ((uint32_t)size << 10U);
 }
-#if 0
-#define MY_FLASH_SIZE GetFlashSize()
-#define MY_FLASH_BANK_SIZE (MY_FLASH_SIZE >> 1U)
 
-uint32_t GetSector(uint32_t Address)
-{
-   uint32_t sector = 0;
-
-   if((Address >= FLASH_BASE) && (Address < FLASH_BASE + MY_FLASH_BANK_SIZE))
-   {
-      sector = (Address & ~FLASH_BASE) / FLASH_SECTOR_SIZE;
-   }
-   else if((Address >= FLASH_BASE + MY_FLASH_BANK_SIZE) && (Address < FLASH_BASE + FLASH_SIZE))
-   {
-      sector = ((Address & ~FLASH_BASE) - MY_FLASH_BANK_SIZE) / FLASH_SECTOR_SIZE;
-   }
-   else
-   {
-      sector = 0xFFFFFFFF; /* Address out of range */
-   }
-
-   return sector;
-}
-#else
 /**
  * @brief  Gets the sector of a given address
  * @param  Addr: Address of the FLASH Memory
@@ -1044,44 +1019,6 @@ uint32_t GetSectorSingleBank(uint32_t Address)
 }
 #endif
 
-#if 0
-/**
- * @brief  Gets the bank of a given address
- * @param  Addr: Address of the FLASH Memory
- * @retval The bank of a given address
- */
-uint32_t GetBank(uint32_t Addr)
-{
-   uint32_t bank = 0;
-
-   if(READ_BIT(FLASH->OPTSR_CUR, FLASH_OPTSR_SWAP_BANK) == 0)
-   {
-      /* No Bank swap */
-      if(Addr < (FLASH_BASE + MY_FLASH_BANK_SIZE))
-      {
-         bank = FLASH_BANK_1;
-      }
-      else
-      {
-         bank = FLASH_BANK_2;
-      }
-   }
-   else
-   {
-      /* Bank swap */
-      if(Addr < (FLASH_BASE + MY_FLASH_BANK_SIZE))
-      {
-         bank = FLASH_BANK_2;
-      }
-      else
-      {
-         bank = FLASH_BANK_1;
-      }
-   }
-
-   return bank;
-}
-#else
 /**
  * @brief  Gets the bank of a given address
  * @param  Addr: Address of the FLASH Memory
@@ -1118,5 +1055,3 @@ uint32_t GetBank(uint32_t Addr)
 
    return bank;
 }
-#endif
-#endif

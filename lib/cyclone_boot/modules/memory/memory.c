@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneBOOT Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 // Switch to the appropriate trace level
@@ -85,8 +85,9 @@ cboot_error_t memoryInit(Memory *memories, size_t nbMemories)
       memoryRole = memory->memoryRole;
 
       // Check memory role
-      if(memoryRole < MEMORY_ROLE_PRIMARY || memoryRole > MEMORY_ROLE_SECONDARY)
+      if(memoryRole != MEMORY_ROLE_PRIMARY && memoryRole != MEMORY_ROLE_SECONDARY)
          return CBOOT_ERROR_UNKNOWN_MEMORY_ROLE;
+
 
       // Check driver validity
       if(memoryDriver == NULL)
@@ -479,7 +480,7 @@ cboot_error_t memoryCopySlot(Slot *src, Slot *dst, size_t bytesNumber)
    if(cerror)
       return cerror;
 
-   // Check the number of bytes to copy isn't above respecitve slots size
+   // Check the number of bytes to copy isn't above respective slots size
    if(bytesNumber >= srcMemInfo.size || bytesNumber >= dstMemInfo.size)
       return CBOOT_ERROR_INVALID_PARAMETERS;
 
@@ -571,7 +572,7 @@ cboot_error_t memoryEraseSlot(Slot *slot, uint32_t offset, size_t length)
 }
 
 /**
- * @brief Compare two slots
+ * @brief Compare two slot metadata
  **/
 void memoryCompareSlot(Slot *src, Slot *dst, uint8_t *result)
 {
@@ -588,6 +589,58 @@ void memoryCompareSlot(Slot *src, Slot *dst, uint8_t *result)
    {
       *result = 0;   // Identical
    }
+}
+
+/**
+ * @brief Compare two slot contents
+ **/
+cboot_error_t memoryCompareSlotContent(Slot *src, Slot *dst, uint8_t *result)
+{
+   cboot_error_t cerror;
+   uint8_t buffer1[512];
+   uint8_t buffer2[512];
+   size_t offset = 0;
+   size_t remaining;
+
+   // Check parameters
+   if(src == NULL || dst == NULL || result == NULL)
+      return CBOOT_ERROR_INVALID_PARAMETERS;
+
+   // Slots must be comparable
+   if(src->size != dst->size)
+   {
+      *result = 1;
+      return CBOOT_NO_ERROR;
+   }
+
+   remaining = src->size;
+
+   while(remaining > 0)
+   {
+      size_t chunk = (remaining > sizeof(buffer1)) ? sizeof(buffer1) : remaining;
+
+      // Read from both slots
+      cerror = memoryReadSlot(src, offset, buffer1, chunk);
+      if(cerror)
+         return cerror;
+
+      cerror = memoryReadSlot(dst, offset, buffer2, chunk);
+      if(cerror)
+         return cerror;
+
+      // Compare buffers
+      if(memcmp(buffer1, buffer2, chunk) != 0)
+      {
+         *result = 1; // Different
+         return CBOOT_NO_ERROR;
+      }
+
+      offset += chunk;
+      remaining -= chunk;
+   }
+
+   *result = 0; // Identical
+   return CBOOT_NO_ERROR;
 }
 
 cboot_error_t memoryCleanup(Memory *memories, size_t nbMemories)
@@ -697,7 +750,7 @@ cboot_error_t cleanupSlotHandler(Slot *slot)
 
 cboot_error_t slotsInit(Memory *memory)
 {
-   uint_t i;
+   uint8_t i;
    const void *memoryDriver;
    Slot *slot;
 

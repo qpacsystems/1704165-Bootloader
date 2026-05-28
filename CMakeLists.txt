@@ -71,13 +71,14 @@ set(SOURCES_APP
     src/boot_hooks.c
 )
 
-# CycloneBOOT second-stage bootloader
+# CycloneBOOT v2.6.2 second-stage bootloader
 set(SOURCES_CYCLONE_BOOT
     ${CYCLONE_BOOT_PATH}/bootloader/second_stage/boot.c
     ${CYCLONE_BOOT_PATH}/bootloader/second_stage/boot_common.c
     ${CYCLONE_BOOT_PATH}/bootloader/second_stage/boot_fallback.c
     ${CYCLONE_BOOT_PATH}/core/crc32.c
     ${CYCLONE_BOOT_PATH}/core/mailbox.c
+    ${CYCLONE_BOOT_PATH}/core/verify.c
     ${CYCLONE_BOOT_PATH}/drivers/flash/internal/stm32h5xx_flash_driver.c
     ${CYCLONE_BOOT_PATH}/drivers/mcu_core/stm32h5xx_mcu_driver.c
     ${CYCLONE_BOOT_PATH}/modules/image/image.c
@@ -85,7 +86,6 @@ set(SOURCES_CYCLONE_BOOT
     ${CYCLONE_BOOT_PATH}/modules/image/image_utils.c
     ${CYCLONE_BOOT_PATH}/modules/memory/memory.c
     ${CYCLONE_BOOT_PATH}/modules/memory/memory_ex.c
-    ${CYCLONE_BOOT_PATH}/modules/security/verify.c
 )
 
 # CycloneCRYPTO (for CRC32 hash algo interface + SHA256 if needed)

@@ -4,7 +4,7 @@
  *
  * @section License
  *
- * Copyright (C) 2021-2025 Oryx Embedded SARL. All rights reserved.
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
  *
  * This file is part of CycloneCRYPTO Open
  * 
@@ -26,7 +26,7 @@
 
  *
  * @author Oryx Embedded SARL (www.oryx-embedded.com)
- * @version 2.5.4-revb
+ * @version 2.6.2
  **/
 
 //Switch to the appropriate trace level
@@ -47,8 +47,8 @@
 #define MAJ(x, y, z) (((x) & (y)) | ((x) & (z)) | ((y) & (z)))
 #define SIGMA1(x) (ROR32(x, 2) ^ ROR32(x, 13) ^ ROR32(x, 22))
 #define SIGMA2(x) (ROR32(x, 6) ^ ROR32(x, 11) ^ ROR32(x, 25))
-#define SIGMA3(x) (ROR32(x, 7) ^ ROR32(x, 18) ^ SHR32(x, 3))
-#define SIGMA4(x) (ROR32(x, 17) ^ ROR32(x, 19) ^ SHR32(x, 10))
+#define SIGMA3(x) (ROR32(x, 7) ^ ROR32(x, 18) ^ ((x) >> 3))
+#define SIGMA4(x) (ROR32(x, 17) ^ ROR32(x, 19) ^ ((x) >> 10))
 
 //SHA-256 padding
 static const uint8_t padding[64] =
@@ -71,6 +71,8 @@ static const uint32_t k[64] =
    0x19A4C116, 0x1E376C08, 0x2748774C, 0x34B0BCB5, 0x391C0CB3, 0x4ED8AA4A, 0x5B9CCA4F, 0x682E6FF3,
    0x748F82EE, 0x78A5636F, 0x84C87814, 0x8CC70208, 0x90BEFFFA, 0xA4506CEB, 0xBEF9A3F7, 0xC67178F2
 };
+
+#if (SHA256_SUPPORT == ENABLED)
 
 //SHA-256 object identifier (2.16.840.1.101.3.4.2.1)
 const uint8_t SHA256_OID[9] = {0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01};
@@ -99,6 +101,8 @@ const HashAlgo sha256HashAlgo =
    (HashAlgoFinalRaw) sha256FinalRaw
 #endif
 };
+
+#endif
 
 
 /**

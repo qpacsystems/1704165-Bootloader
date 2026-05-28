@@ -1,0 +1,63 @@
+/**
+ * @file pem_export.h
+ * @brief PEM file export functions
+ *
+ * @section License
+ *
+ * Copyright (C) 2021-2026 Oryx Embedded SARL. All rights reserved.
+ *
+ * This file is part of CycloneCRYPTO Open
+ * 
+ * SPDX-License-Identifier: GPL-2.0-or-later
+ *
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+ *
+ * @author Oryx Embedded SARL (www.oryx-embedded.com)
+ * @version 2.6.2
+ **/
+
+#ifndef _PEM_EXPORT_H
+#define _PEM_EXPORT_H
+
+//Dependencies
+#include "core/crypto.h"
+#include "pkix/pem_common.h"
+#include "ecc/ec.h"
+
+//C++ guard
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+//PEM related functions
+error_t pemExportCertificate(const uint8_t *cert, size_t certLen,
+   char_t *output, size_t *written);
+
+error_t pemExportCrl(const uint8_t *crl, size_t crlLen,
+   char_t *output, size_t *written);
+
+error_t pemExportCsr(const uint8_t *csr, size_t csrLen,
+   char_t *output, size_t *written);
+
+error_t pemExportEcParameters(const EcCurve *curve, char_t *output,
+   size_t *written);
+
+//C++ guard
+#ifdef __cplusplus
+}
+#endif
+
+#endif
