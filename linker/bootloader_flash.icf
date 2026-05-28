@@ -1,0 +1,34 @@
+/*###ICF### Bootloader linker script for IAR — STM32H563VI ###*/
+
+define symbol __ICFEDIT_intvec_start__ = 0x08000000;
+
+define symbol __ICFEDIT_region_ROM_start__ = 0x08000000;
+define symbol __ICFEDIT_region_ROM_end__   = 0x0800FFFF;  /* 64KB bootloader */
+
+define symbol region_mailbox_start = 0x20000000;
+define symbol region_mailbox_end   = 0x20000083;  /* 132 bytes */
+
+define symbol __ICFEDIT_region_RAM_start__ = 0x20000084;
+define symbol __ICFEDIT_region_RAM_end__   = 0x2009FFFF;
+
+define symbol __ICFEDIT_size_cstack__ = 0x800;  /* 2KB */
+define symbol __ICFEDIT_size_heap__   = 0x400;  /* 1KB */
+
+define memory mem with size = 4G;
+
+define region ROM_region     = mem:[from __ICFEDIT_region_ROM_start__ to __ICFEDIT_region_ROM_end__];
+define region RAM_region     = mem:[from __ICFEDIT_region_RAM_start__ to __ICFEDIT_region_RAM_end__];
+define region mailbox_region = mem:[from region_mailbox_start         to region_mailbox_end];
+
+define block CSTACK with alignment = 8, size = __ICFEDIT_size_cstack__ { };
+define block HEAP   with alignment = 8, size = __ICFEDIT_size_heap__   { };
+
+initialize by copy { readwrite };
+do not initialize  { section .noinit };
+do not initialize  { section .boot_mailbox };
+
+place at address mem:__ICFEDIT_intvec_start__ { readonly section .intvec };
+
+place in mailbox_region { section .boot_mailbox };
+place in ROM_region     { readonly };
+place in RAM_region     { readwrite, block CSTACK, block HEAP };
